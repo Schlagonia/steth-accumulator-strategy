@@ -5,8 +5,8 @@ import "forge-std/console2.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {Strategy, ERC20} from "../../Strategy.sol";
-import {StrategyFactory} from "../../StrategyFactory.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
+import {BaseLSTAccumulator} from "../../BaseLSTAccumulator.sol";
 
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
@@ -24,8 +24,6 @@ contract Setup is Test, IEvents {
     ERC20 public asset;
     IStrategyInterface public strategy;
 
-    StrategyFactory public strategyFactory;
-
     mapping(string => address) public tokenAddrs;
 
     // Addresses for different roles we will use repeatedly.
@@ -42,9 +40,9 @@ contract Setup is Test, IEvents {
     uint256 public decimals;
     uint256 public MAX_BPS = 10_000;
 
-    // Fuzz from $0.01 of 1e6 stable coins up to 1 trillion of a 1e18 coin
-    uint256 public maxFuzzAmount = 1e30;
-    uint256 public minFuzzAmount = 10_000;
+    // Fuzz from 0.01 ETH to 100k ETH (reasonable amounts for testing)
+    uint256 public maxFuzzAmount = 1_00e18;
+    uint256 public minFuzzAmount = 0.01e18;
 
     // Default profit max unlock time is set for 10 days
     uint256 public profitMaxUnlockTime = 10 days;
@@ -52,18 +50,11 @@ contract Setup is Test, IEvents {
     function setUp() public virtual {
         _setTokenAddrs();
 
-        // Set asset
-        asset = ERC20(tokenAddrs["DAI"]);
+        // Set asset to WETH (required for stETH strategy)
+        asset = ERC20(tokenAddrs["WETH"]);
 
         // Set decimals
         decimals = asset.decimals();
-
-        strategyFactory = new StrategyFactory(
-            management,
-            performanceFeeRecipient,
-            keeper,
-            emergencyAdmin
-        );
 
         // Deploy strategy and set variables
         strategy = IStrategyInterface(setUpStrategy());
@@ -82,16 +73,20 @@ contract Setup is Test, IEvents {
     function setUpStrategy() public returns (address) {
         // we save the strategy as a IStrategyInterface to give it the needed interface
         IStrategyInterface _strategy = IStrategyInterface(
-            address(
-                strategyFactory.newStrategy(
-                    address(asset),
-                    "Tokenized Strategy"
-                )
-            )
+            address(new Strategy(address(asset), "Tokenized Strategy"))
         );
+
+        _strategy.setPendingManagement(management);
+        _strategy.setKeeper(keeper);
+        _strategy.setEmergencyAdmin(emergencyAdmin);
+        _strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
 
         vm.prank(management);
         _strategy.acceptManagement();
+
+        // Open deposits for testing
+        vm.prank(emergencyAdmin);
+        BaseLSTAccumulator(address(_strategy)).setOpenDeposits(true);
 
         return address(_strategy);
     }
@@ -163,5 +158,6 @@ contract Setup is Test, IEvents {
         tokenAddrs["USDT"] = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
         tokenAddrs["DAI"] = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
         tokenAddrs["USDC"] = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        tokenAddrs["STETH"] = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
     }
 }

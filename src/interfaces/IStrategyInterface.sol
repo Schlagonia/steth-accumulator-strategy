@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: AGPL-3.0
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {IStrategy} from "@tokenized-strategy/interfaces/IStrategy.sol";
+import {IBaseLSTAccumulator} from "./IBaseLSTAccumulator.sol";
 
-interface IStrategyInterface is IStrategy {
-    //TODO: Add your specific implementation interface in here.
+interface IStrategyInterface is IBaseLSTAccumulator {
+    // stETH-specific functions
+
+    function referral() external view returns (address);
+    function setReferral(address _referral) external;
 }

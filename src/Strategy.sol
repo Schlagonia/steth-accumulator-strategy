@@ -1,248 +1,135 @@
-// SPDX-License-Identifier: AGPL-3.0
-pragma solidity ^0.8.18;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
 
-import {BaseStrategy, ERC20} from "@tokenized-strategy/BaseStrategy.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {BaseLSTAccumulator} from "./BaseLSTAccumulator.sol";
+import {IQueue} from "./interfaces/IQueue.sol";
+import {IWETH} from "./interfaces/IWETH.sol";
+import {ICurve} from "./interfaces/ICurve.sol";
+import {ISTETH} from "./interfaces/ISTETH.sol";
 
-// Import interfaces for many popular DeFi projects, or add your own!
-//import "../interfaces/<protocol>/<Interface>.sol";
-
-/**
- * The `TokenizedStrategy` variable can be used to retrieve the strategies
- * specific storage data your contract.
- *
- *       i.e. uint256 totalAssets = TokenizedStrategy.totalAssets()
- *
- * This can not be used for write functions. Any TokenizedStrategy
- * variables that need to be updated post deployment will need to
- * come from an external call from the strategies specific `management`.
- */
-
-// NOTE: To implement permissioned functions you can use the onlyManagement, onlyEmergencyAuthorized and onlyKeepers modifiers
-
-contract Strategy is BaseStrategy {
+/// @title stETH Accumulator Strategy
+/// @author yearn.fi
+/// @notice Yearn V3 strategy for accumulating stETH through optimal staking routes
+contract Strategy is BaseLSTAccumulator {
     using SafeERC20 for ERC20;
+
+    // stETH specific constants
+    address internal constant WITHDRAWAL_QUEUE =
+        0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1; // stETH withdrawal queue
+
+    address internal constant CURVE_POOL =
+        0xDC24316b9AE028F1497c275EB9192a3Ea0f67022; // Curve ETH/stETH pool
+
+    int128 internal constant ASSET_ID = 0; // ETH index in Curve pool
+
+    int128 internal constant LST_ID = 1; // stETH index in Curve pool
+
+    address public referral;
 
     constructor(
         address _asset,
         string memory _name
-    ) BaseStrategy(_asset, _name) {}
-
-    /*//////////////////////////////////////////////////////////////
-                NEEDED TO BE OVERRIDDEN BY STRATEGIST
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @dev Can deploy up to '_amount' of 'asset' in the yield source.
-     *
-     * This function is called at the end of a {deposit} or {mint}
-     * call. Meaning that unless a whitelist is implemented it will
-     * be entirely permissionless and thus can be sandwiched or otherwise
-     * manipulated.
-     *
-     * @param _amount The amount of 'asset' that the strategy can attempt
-     * to deposit in the yield source.
-     */
-    function _deployFunds(uint256 _amount) internal override {
-        // TODO: implement deposit logic EX:
-        //
-        //      lendingPool.deposit(address(asset), _amount ,0);
-    }
-
-    /**
-     * @dev Should attempt to free the '_amount' of 'asset'.
-     *
-     * NOTE: The amount of 'asset' that is already loose has already
-     * been accounted for.
-     *
-     * This function is called during {withdraw} and {redeem} calls.
-     * Meaning that unless a whitelist is implemented it will be
-     * entirely permissionless and thus can be sandwiched or otherwise
-     * manipulated.
-     *
-     * Should not rely on asset.balanceOf(address(this)) calls other than
-     * for diff accounting purposes.
-     *
-     * Any difference between `_amount` and what is actually freed will be
-     * counted as a loss and passed on to the withdrawer. This means
-     * care should be taken in times of illiquidity. It may be better to revert
-     * if withdraws are simply illiquid so not to realize incorrect losses.
-     *
-     * @param _amount, The amount of 'asset' to be freed.
-     */
-    function _freeFunds(uint256 _amount) internal override {
-        // TODO: implement withdraw logic EX:
-        //
-        //      lendingPool.withdraw(address(asset), _amount);
-    }
-
-    /**
-     * @dev Internal function to harvest all rewards, redeploy any idle
-     * funds and return an accurate accounting of all funds currently
-     * held by the Strategy.
-     *
-     * This should do any needed harvesting, rewards selling, accrual,
-     * redepositing etc. to get the most accurate view of current assets.
-     *
-     * NOTE: All applicable assets including loose assets should be
-     * accounted for in this function.
-     *
-     * Care should be taken when relying on oracles or swap values rather
-     * than actual amounts as all Strategy profit/loss accounting will
-     * be done based on this returned value.
-     *
-     * This can still be called post a shutdown, a strategist can check
-     * `TokenizedStrategy.isShutdown()` to decide if funds should be
-     * redeployed or simply realize any profits/losses.
-     *
-     * @return _totalAssets A trusted and accurate account for the total
-     * amount of 'asset' the strategy currently holds including idle funds.
-     */
-    function _harvestAndReport()
-        internal
-        override
-        returns (uint256 _totalAssets)
+    )
+        BaseLSTAccumulator(
+            _asset,
+            _name,
+            0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84
+        )
     {
-        // TODO: Implement harvesting logic and accurate accounting EX:
-        //
-        //      if(!TokenizedStrategy.isShutdown()) {
-        //          _claimAndSellRewards();
-        //      }
-        //      _totalAssets = aToken.balanceOf(address(this)) + asset.balanceOf(address(this));
-        //
-        _totalAssets = asset.balanceOf(address(this));
+        // Approve Curve pool for asset (WETH) and LST (stETH)
+        asset.safeApprove(CURVE_POOL, type(uint256).max);
+        ERC20(LST).safeApprove(CURVE_POOL, type(uint256).max);
+
+        // Approve stETH withdrawal queue
+        ERC20(LST).safeApprove(WITHDRAWAL_QUEUE, type(uint256).max);
     }
 
-    /*//////////////////////////////////////////////////////////////
-                    OPTIONAL TO OVERRIDE BY STRATEGIST
-    //////////////////////////////////////////////////////////////*/
+    receive() external payable {}
 
-    /**
-     * @notice Gets the max amount of `asset` that can be withdrawn.
-     * @dev Defaults to an unlimited amount for any address. But can
-     * be overridden by strategists.
-     *
-     * This function will be called before any withdraw or redeem to enforce
-     * any limits desired by the strategist. This can be used for illiquid
-     * or sandwichable strategies.
-     *
-     *   EX:
-     *       return asset.balanceOf(yieldSource);
-     *
-     * This does not need to take into account the `_owner`'s share balance
-     * or conversion rates from shares to assets.
-     *
-     * @param . The address that is withdrawing from the strategy.
-     * @return . The available amount that can be withdrawn in terms of `asset`
-     */
-    function availableWithdrawLimit(
-        address /*_owner*/
-    ) public view override returns (uint256) {
-        // NOTE: Withdraw limitations such as liquidity constraints should be accounted for HERE
-        //  rather than _freeFunds in order to not count them as losses on withdraws.
-
-        // TODO: If desired implement withdraw limit logic and any needed state variables.
-
-        // EX:
-        // if(yieldSource.notShutdown()) {
-        //    return asset.balanceOf(address(this)) + asset.balanceOf(yieldSource);
-        // }
-        return asset.balanceOf(address(this));
-    }
-
-    /**
-     * @notice Gets the max amount of `asset` that an address can deposit.
-     * @dev Defaults to an unlimited amount for any address. But can
-     * be overridden by strategists.
-     *
-     * This function will be called before any deposit or mints to enforce
-     * any limits desired by the strategist. This can be used for either a
-     * traditional deposit limit or for implementing a whitelist etc.
-     *
-     *   EX:
-     *      if(isAllowed[_owner]) return super.availableDepositLimit(_owner);
-     *
-     * This does not need to take into account any conversion rates
-     * from shares to assets. But should know that any non max uint256
-     * amounts may be converted to shares. So it is recommended to keep
-     * custom amounts low enough as not to cause overflow when multiplied
-     * by `totalSupply`.
-     *
-     * @param . The address that is depositing into the strategy.
-     * @return . The available amount the `_owner` can deposit in terms of `asset`
-     *
     function availableDepositLimit(
         address _owner
-    ) public view override returns (uint256) {
-        TODO: If desired Implement deposit limit logic and any needed state variables .
-        
-        EX:    
-            uint256 totalAssets = TokenizedStrategy.totalAssets();
-            return totalAssets >= depositLimit ? 0 : depositLimit - totalAssets;
-    }
-    */
-
-    /**
-     * @dev Optional function for strategist to override that can
-     *  be called in between reports.
-     *
-     * If '_tend' is used tendTrigger() will also need to be overridden.
-     *
-     * This call can only be called by a permissioned role so may be
-     * through protected relays.
-     *
-     * This can be used to harvest and compound rewards, deposit idle funds,
-     * perform needed position maintenance or anything else that doesn't need
-     * a full report for.
-     *
-     *   EX: A strategy that can not deposit funds without getting
-     *       sandwiched can use the tend when a certain threshold
-     *       of idle to totalAssets has been reached.
-     *
-     * This will have no effect on PPS of the strategy till report() is called.
-     *
-     * @param _totalIdle The current amount of idle funds that are available to deploy.
-     *
-    function _tend(uint256 _totalIdle) internal override {}
-    */
-
-    /**
-     * @dev Optional trigger to override if tend() will be used by the strategy.
-     * This must be implemented if the strategy hopes to invoke _tend().
-     *
-     * @return . Should return true if tend() should be called by keeper or false if not.
-     *
-    function _tendTrigger() internal view override returns (bool) {}
-    */
-
-    /**
-     * @dev Optional function for a strategist to override that will
-     * allow management to manually withdraw deployed funds from the
-     * yield source if a strategy is shutdown.
-     *
-     * This should attempt to free `_amount`, noting that `_amount` may
-     * be more than is currently deployed.
-     *
-     * NOTE: This will not realize any profits or losses. A separate
-     * {report} will be needed in order to record any profit/loss. If
-     * a report may need to be called after a shutdown it is important
-     * to check if the strategy is shutdown during {_harvestAndReport}
-     * so that it does not simply re-deploy all funds that had been freed.
-     *
-     * EX:
-     *   if(freeAsset > 0 && !TokenizedStrategy.isShutdown()) {
-     *       depositFunds...
-     *    }
-     *
-     * @param _amount The amount of asset to attempt to free.
-     *
-    function _emergencyWithdraw(uint256 _amount) internal override {
-        TODO: If desired implement simple logic to free deployed funds.
-
-        EX:
-            _amount = min(_amount, aToken.balanceOf(address(this)));
-            _freeFunds(_amount);
+    ) public view virtual override returns (uint256) {
+        if (ISTETH(LST).isStakingPaused()) {
+            return 0;
+        }
+        return super.availableDepositLimit(_owner);
     }
 
-    */
+    /*//////////////////////////////////////////////////////////////
+                REQUIRED VIRTUAL FUNCTION IMPLEMENTATIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Stake ETH to stETH using the most optimal route
+    /// @param _amount Amount of WETH to stake
+    function _stake(uint256 _amount) internal override {
+        // Convert WETH to ETH
+        IWETH(address(asset)).withdraw(_amount);
+
+        // Check if Curve swap gives better than 1:1 rate
+        if (ICurve(CURVE_POOL).get_dy(ASSET_ID, LST_ID, _amount) > _amount) {
+            // Swap through Curve for better rate
+            ICurve(CURVE_POOL).exchange{value: _amount}(
+                ASSET_ID,
+                LST_ID,
+                _amount,
+                _amount // Minimum 1:1
+            );
+        } else {
+            // Stake directly with Lido for 1:1
+            ISTETH(LST).submit{value: _amount}(referral);
+        }
+    }
+
+    /// @notice Swap stETH to WETH through Curve
+    /// @param _amount Amount of stETH to swap
+    function _swapLSTToAsset(
+        uint256 _amount,
+        uint256 _minOut
+    ) internal virtual override {
+        // Swap stETH for ETH through Curve
+        ICurve(CURVE_POOL).exchange(LST_ID, ASSET_ID, _amount, _minOut);
+
+        // Convert received ETH to WETH
+        IWETH(address(asset)).deposit{value: address(this).balance}();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                STETH SPECIFIC FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Initiate stETH withdrawal through Lido queue for 1:1 redemption
+    /// @param _amount Amount of LST to queue for withdrawal
+    /// @return returnData Return data from the withdrawal request
+    function _initiateLSTWithdrawal(
+        uint256 _amount
+    ) internal virtual override returns (bytes memory returnData) {
+        uint256[] memory _amounts = new uint256[](1);
+        _amounts[0] = _amount;
+
+        uint256[] memory requestIds = IQueue(WITHDRAWAL_QUEUE)
+            .requestWithdrawals(_amounts, address(this));
+
+        return abi.encode(requestIds);
+    }
+
+    /// @notice Claim ETH from completed Lido withdrawal request
+    /// @param _claimData The claim data from the withdrawal request
+    function _claimLSTWithdrawal(
+        bytes memory _claimData
+    ) internal virtual override returns (uint256 _redeemedAmount) {
+        uint256 _requestId = abi.decode(_claimData, (uint256));
+
+        uint256 preBalance = address(this).balance;
+        IQueue(WITHDRAWAL_QUEUE).claimWithdrawal(_requestId);
+        _redeemedAmount = address(this).balance - preBalance;
+
+        // Convert received ETH to WETH
+        IWETH(address(asset)).deposit{value: _redeemedAmount}();
+    }
+
+    function setReferral(address _referral) external virtual onlyManagement {
+        referral = _referral;
+    }
 }
