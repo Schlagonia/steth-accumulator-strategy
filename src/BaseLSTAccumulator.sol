@@ -239,7 +239,21 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         bytes memory _claimData
     ) external virtual onlyManagement returns (uint256) {
         uint256 _redeemedAmount = _claimLSTWithdrawal(_claimData);
-        pendingRedemptions -= _redeemedAmount;
+        pendingRedemptions = _redeemedAmount >= pendingRedemptions
+            ? 0
+            : pendingRedemptions - _redeemedAmount;
         return _redeemedAmount;
+    }
+
+    /// @notice Clear pending redemptions in emergency
+    /// @dev This should only be used in extreme scenarios when there are
+    ///    issues with the redemtion process in order to "unstick" a strategy.
+    ///    Using this will cause losses to potentially be realized during the next report
+    function clearPendingRedemptions(
+        uint256 _amount
+    ) external virtual onlyManagement {
+        pendingRedemptions = _amount >= pendingRedemptions
+            ? 0
+            : pendingRedemptions - _amount;
     }
 }

@@ -126,7 +126,7 @@ contract Strategy is BaseLSTAccumulator {
         _redeemedAmount = address(this).balance - preBalance;
 
         // Convert received ETH to WETH
-        IWETH(address(asset)).deposit{value: _redeemedAmount}();
+        IWETH(address(asset)).deposit{value: address(this).balance}();
     }
 
     function setReferral(address _referral) external virtual onlyManagement {

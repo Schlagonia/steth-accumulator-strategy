@@ -37,4 +37,5 @@ interface IBaseLSTAccumulator is IBaseHealthCheck {
     function claimLSTWithdrawal(
         bytes memory _claimData
     ) external returns (uint256);
+    function clearPendingRedemptions(uint256 _amount) external;
 }
