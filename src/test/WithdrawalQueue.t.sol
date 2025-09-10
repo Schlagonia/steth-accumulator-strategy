@@ -106,12 +106,7 @@ contract WithdrawalQueueTest is Setup {
 
         // Check WETH was received
         uint256 wethAfter = asset.balanceOf(address(strategy));
-        assertApproxEqAbs(
-            wethAfter - wethBefore,
-            claimedAmount,
-            2,
-            "WETH not received"
-        );
+        assertGe(wethAfter - wethBefore, claimedAmount, "WETH not received");
 
         // Check pending redemptions cleared
         assertEq(

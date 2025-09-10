@@ -47,8 +47,8 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         emit StakeAssetUpdated(true);
 
         // Default parameters - can be overridden in child constructors
-        depositLimit = 2 ** 256 - 1;
-        emit DepositLimitUpdated(2 ** 256 - 1);
+        depositLimit = type(uint256).max;
+        emit DepositLimitUpdated(type(uint256).max);
 
         openDeposits = false;
         emit OpenDepositsUpdated(false);
@@ -84,6 +84,18 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     /// @notice Claim and sell rewards
     function _claimAndSellRewards() internal virtual {}
 
+    /// @notice Get the deposit limit
+    /// @dev Can be overridden by child contracts to implement custom deposit limits
+    /// @return _depositLimit The deposit limit
+    function _depositLimit() internal view virtual returns (uint256) {
+        uint256 _estimatedTotalAssets = estimatedTotalAssets();
+        uint256 _depositLimit = depositLimit;
+        if (_estimatedTotalAssets < _depositLimit) {
+            return _depositLimit - _estimatedTotalAssets;
+        }
+        return 0;
+    }
+
     /*//////////////////////////////////////////////////////////////
                 INTERNAL BASE IMPLEMENTATION
     //////////////////////////////////////////////////////////////*/
@@ -103,12 +115,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         address _owner
     ) public view virtual override returns (uint256) {
         if (openDeposits || allowed[_owner]) {
-            uint256 _estimatedTotalAssets = estimatedTotalAssets();
-            uint256 _depositLimit = depositLimit;
-            if (_estimatedTotalAssets < _depositLimit) {
-                return _depositLimit - _estimatedTotalAssets;
-            }
-            return 0;
+            return _depositLimit();
         }
         return 0;
     }
@@ -131,7 +138,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         _claimAndSellRewards();
 
         // Stake any loose asset if not shutdown
-        _deployFunds(balanceOfAsset());
+        _deployFunds(Math.min(balanceOfAsset(), _depositLimit()));
 
         // Simple accounting: Asset + LST (assuming LST rebases or maintains peg)
         _totalAssets = estimatedTotalAssets();

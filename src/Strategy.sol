@@ -38,23 +38,17 @@ contract Strategy is BaseLSTAccumulator {
             0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84
         )
     {
-        // Approve Curve pool for asset (WETH) and LST (stETH)
-        asset.safeApprove(CURVE_POOL, type(uint256).max);
-        ERC20(LST).safeApprove(CURVE_POOL, type(uint256).max);
-
-        // Approve stETH withdrawal queue
-        ERC20(LST).safeApprove(WITHDRAWAL_QUEUE, type(uint256).max);
+        // Approve Curve pool for asset (WETH)
+        asset.forceApprove(CURVE_POOL, type(uint256).max);
     }
 
     receive() external payable {}
 
-    function availableDepositLimit(
-        address _owner
-    ) public view virtual override returns (uint256) {
+    function _depositLimit() internal view virtual override returns (uint256) {
         if (ISTETH(LST).isStakingPaused()) {
             return 0;
         }
-        return super.availableDepositLimit(_owner);
+        return super._depositLimit();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -88,6 +82,8 @@ contract Strategy is BaseLSTAccumulator {
         uint256 _amount,
         uint256 _minOut
     ) internal virtual override {
+        ERC20(LST).forceApprove(CURVE_POOL, _amount);
+
         // Swap stETH for ETH through Curve
         ICurve(CURVE_POOL).exchange(LST_ID, ASSET_ID, _amount, _minOut);
 
@@ -105,6 +101,8 @@ contract Strategy is BaseLSTAccumulator {
     function _initiateLSTWithdrawal(
         uint256 _amount
     ) internal virtual override returns (bytes memory returnData) {
+        ERC20(LST).forceApprove(WITHDRAWAL_QUEUE, _amount);
+
         uint256[] memory _amounts = new uint256[](1);
         _amounts[0] = _amount;
 
