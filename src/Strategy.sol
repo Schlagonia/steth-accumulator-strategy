@@ -58,6 +58,8 @@ contract Strategy is BaseLSTAccumulator {
     /// @notice Stake ETH to stETH using the most optimal route
     /// @param _amount Amount of WETH to stake
     function _stake(uint256 _amount) internal override {
+        if (_amount == 0) return;
+
         // Convert WETH to ETH
         IWETH(address(asset)).withdraw(_amount);
 
@@ -124,6 +126,20 @@ contract Strategy is BaseLSTAccumulator {
         _redeemedAmount = address(this).balance - preBalance;
 
         // Convert received ETH to WETH
+        IWETH(address(asset)).deposit{value: address(this).balance}();
+    }
+
+    // @dev Only needed if the hint and batch ID are too far from each other.
+    function manualClaimWithdrawals(
+        uint256[] calldata _requestIds,
+        uint256[] calldata _hints,
+        bool _zeroRedemptions
+    ) external onlyEmergencyAuthorized {
+        IQueue(WITHDRAWAL_QUEUE).claimWithdrawals(_requestIds, _hints);
+        if (_zeroRedemptions) {
+            pendingRedemptions = 0;
+        }
+
         IWETH(address(asset)).deposit{value: address(this).balance}();
     }
 

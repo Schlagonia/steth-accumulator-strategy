@@ -7,4 +7,9 @@ interface IQueue {
         address _owner
     ) external returns (uint256[] memory requestIds);
     function claimWithdrawal(uint256 _requestId) external;
+
+    function claimWithdrawals(
+        uint256[] calldata _requestIds,
+        uint256[] calldata _hints
+    ) external;
 }

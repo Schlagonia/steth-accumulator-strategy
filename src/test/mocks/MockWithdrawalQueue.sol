@@ -36,6 +36,20 @@ contract MockWithdrawalQueue {
         require(success, "ETH transfer failed");
     }
 
+    function claimWithdrawals(
+        uint256[] calldata _requestIds,
+        uint256[] calldata _hints
+    ) external {
+        for (uint256 i = 0; i < _requestIds.length; i++) {
+            uint256 amount = withdrawalAmounts[_requestIds[i]];
+            require(amount > 0, "Invalid request");
+
+            withdrawalAmounts[_requestIds[i]] = 0;
+            (bool success, ) = msg.sender.call{value: amount}("");
+            require(success, "ETH transfer failed");
+        }
+    }
+
     // Allow receiving stETH
     receive() external payable {}
 }

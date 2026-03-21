@@ -17,6 +17,9 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     event OpenDepositsUpdated(bool indexed openDeposits);
     event AllowedUpdated(address indexed user, bool indexed allowed);
     event DepositLimitUpdated(uint256 indexed depositLimit);
+    event ReportBufferUpdated(uint256 indexed reportBuffer);
+    event MinAmountToTendUpdated(uint256 indexed minAmountToTend);
+    event MaxGasPriceToTendUpdated(uint256 indexed maxGasPriceToTend);
 
     uint256 internal constant WAD = 1e18;
 
@@ -28,6 +31,12 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     bool public stakeAsset; // If true, the strategy will stake asset to LST during deposits
 
     uint256 public depositLimit;
+
+    uint256 public reportBuffer;
+
+    uint256 public minAmountToTend;
+
+    uint256 public maxGasPriceToTend;
 
     uint256 public pendingRedemptions;
 
@@ -50,8 +59,13 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         depositLimit = type(uint256).max;
         emit DepositLimitUpdated(type(uint256).max);
 
-        openDeposits = false;
-        emit OpenDepositsUpdated(false);
+        minAmountToTend = type(uint256).max;
+        emit MinAmountToTendUpdated(type(uint256).max);
+
+        maxGasPriceToTend = 10e9;
+        emit MaxGasPriceToTendUpdated(10e9);
+
+        allowed[address(this)] = true;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -89,9 +103,9 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     /// @return _depositLimit The deposit limit
     function _depositLimit() internal view virtual returns (uint256) {
         uint256 _estimatedTotalAssets = estimatedTotalAssets();
-        uint256 _depositLimit = depositLimit;
-        if (_estimatedTotalAssets < _depositLimit) {
-            return _depositLimit - _estimatedTotalAssets;
+        uint256 _limit = depositLimit;
+        if (_estimatedTotalAssets < _limit) {
+            return _limit - _estimatedTotalAssets;
         }
         return 0;
     }
@@ -137,8 +151,10 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
 
         _claimAndSellRewards();
 
-        // Stake any loose asset if not shutdown
-        _deployFunds(Math.min(balanceOfAsset(), _depositLimit()));
+        // Stake any loose asset
+        _stake(
+            Math.min(balanceOfAsset(), availableDepositLimit(address(this)))
+        );
 
         // Simple accounting: Asset + LST (assuming LST rebases or maintains peg)
         _totalAssets = estimatedTotalAssets();
@@ -151,12 +167,24 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         _swapLSTToAsset(Math.min(_amount, lstBalance), 0);
     }
 
+    function _tend(uint256 _totalIdle) internal virtual override {
+        _stake(_totalIdle);
+    }
+
+    function _tendTrigger() internal view virtual override returns (bool) {
+        return
+            balanceOfAsset() > minAmountToTend &&
+            block.basefee <= maxGasPriceToTend;
+    }
+
     /*//////////////////////////////////////////////////////////////
                 EXTERNAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function estimatedTotalAssets() public view virtual returns (uint256) {
-        return balanceOfAsset() + valueOfLST();
+        return
+            balanceOfAsset() +
+            ((valueOfLST() * (MAX_BPS - reportBuffer)) / MAX_BPS);
     }
 
     function balanceOfAsset() internal view virtual returns (uint256) {
@@ -176,6 +204,13 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
                 MANAGEMENT FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    function setReportBuffer(
+        uint256 _reportBuffer
+    ) external virtual onlyManagement {
+        reportBuffer = _reportBuffer;
+        emit ReportBufferUpdated(_reportBuffer);
+    }
+
     /// @notice Set whether the strategy will stake asset to LST during harvest
     function setStakeAsset(bool _stakeAsset) external virtual onlyManagement {
         stakeAsset = _stakeAsset;
@@ -183,11 +218,9 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     }
 
     /// @notice Set the maximum amount that can be staked in a single harvest
-    function setDepositLimit(
-        uint256 _depositLimit
-    ) external virtual onlyManagement {
-        depositLimit = _depositLimit;
-        emit DepositLimitUpdated(_depositLimit);
+    function setDepositLimit(uint256 _limit) external virtual onlyManagement {
+        depositLimit = _limit;
+        emit DepositLimitUpdated(_limit);
     }
 
     /// @notice Set whether the strategy is open for deposits
@@ -205,6 +238,22 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     ) external virtual onlyEmergencyAuthorized {
         allowed[_address] = _allowed;
         emit AllowedUpdated(_address, _allowed);
+    }
+
+    /// @notice Set the minimum amount of asset to tend
+    function setMinAmountToTend(
+        uint256 _minAmountToTend
+    ) external virtual onlyManagement {
+        minAmountToTend = _minAmountToTend;
+        emit MinAmountToTendUpdated(_minAmountToTend);
+    }
+
+    /// @notice Set the maximum gas price to tend
+    function setMaxGasPriceToTend(
+        uint256 _maxGasPriceToTend
+    ) external virtual onlyManagement {
+        maxGasPriceToTend = _maxGasPriceToTend;
+        emit MaxGasPriceToTendUpdated(_maxGasPriceToTend);
     }
 
     /// @notice Manually swap LST to asset
