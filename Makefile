@@ -45,4 +45,8 @@ coverage-html:
 	fi
 	@echo "Coverage report generated at coverage-report/index.html"
 
+# deployment
+deploy-dry-run :; forge script script/Deploy.s.sol --fork-url ${FORK_URL} -vvvv
+deploy         :; forge script script/Deploy.s.sol --fork-url ${FORK_URL} --broadcast --verify -vvvv
+
 clean  :; forge clean
