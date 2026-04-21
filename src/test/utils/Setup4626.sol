@@ -19,6 +19,7 @@ contract Setup4626 is Setup {
 
     function setUpStrategy() public virtual override returns (address) {
         vault4626 = new ERC4626Mock(tokenAddrs["WSTETH"]);
+        vault4626 = ERC4626Mock(0xE73b2561309Bed1035D2145275BCA1aEcf85A8F7);
 
         IStrategyInterface _strategy = IStrategyInterface(
             address(

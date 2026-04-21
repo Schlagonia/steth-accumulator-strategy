@@ -37,7 +37,11 @@ contract Strategy4626 is Strategy {
         uint256 stethBalance = ERC20(LST).balanceOf(address(this));
         if (stethBalance == 0) return;
 
-        vault.deposit(wstETH.wrap(stethBalance), address(this));
+        uint256 wstETHBalance = wstETH.wrap(stethBalance);
+        // Can round to 0 if stethBalance is too small
+        if (wstETHBalance == 0) return;
+
+        vault.deposit(wstETHBalance, address(this));
     }
 
     function _swapLSTToAsset(
@@ -119,6 +123,16 @@ contract Strategy4626 is Strategy {
     }
 
     function manualRedeem(uint256 _amount) external onlyEmergencyAuthorized {
+        _amount = Math.min(_amount, vault.balanceOf(address(this)));
+        if (_amount == 0) return;
+
         vault.redeem(_amount, address(this), address(this));
+    }
+
+    function manualUnwrap(uint256 _amount) external onlyEmergencyAuthorized {
+        _amount = Math.min(_amount, balanceOfWstETH());
+        if (_amount == 0) return;
+
+        wstETH.unwrap(_amount);
     }
 }
