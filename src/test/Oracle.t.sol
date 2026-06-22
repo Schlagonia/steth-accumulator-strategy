@@ -1,63 +1,217 @@
-pragma solidity ^0.8.18;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.23;
 
-import "forge-std/console2.sol";
-import {Setup} from "./utils/Setup.sol";
-
+import {Setup, ERC20} from "./utils/Setup.sol";
 import {StrategyAprOracle} from "../periphery/StrategyAprOracle.sol";
+import {BaseLSTAccumulator} from "../BaseLSTAccumulator.sol";
+import {ICurve} from "../interfaces/ICurve.sol";
+import {MockWithdrawalQueue} from "./mocks/MockWithdrawalQueue.sol";
 
 contract OracleTest is Setup {
+    uint256 internal constant SECONDS_PER_YEAR = 31_556_952;
+    address internal constant CURVE_POOL =
+        0xDC24316b9AE028F1497c275EB9192a3Ea0f67022;
+    address internal constant WITHDRAWAL_QUEUE =
+        0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
+    address internal constant STETH_WHALE =
+        0xDC24316b9AE028F1497c275EB9192a3Ea0f67022;
+
     StrategyAprOracle public oracle;
+    MockWithdrawalQueue internal mockQueue;
 
     function setUp() public override {
         super.setUp();
         oracle = new StrategyAprOracle();
+        _setUpMockWithdrawalQueue();
     }
 
-    function checkOracle(address _strategy, uint256 _delta) public {
-        // Check set up
-        // TODO: Add checks for the setup
+    function test_oracleReturnsBaseAprWhenTotalAssetsIsZero() public {
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 0),
+            oracle.baseApr(),
+            "not base apr"
+        );
+    }
 
-        uint256 currentApr = oracle.aprAfterDebtChange(_strategy, 0);
+    function test_oracleAnnualizesUnrealizedProfit() public {
+        uint256 assets = 100e18;
+        uint256 unrealizedProfit = 1e18;
+        uint256 elapsed = 19 days + 7 hours;
 
-        // Should be greater than 0 but likely less than 100%
-        assertGt(currentApr, 0, "ZERO");
-        assertLt(currentApr, 1e18, "+100%");
+        _depositAndReport(assets);
 
-        // TODO: Uncomment to test the apr goes up and down based on debt changes
-        /**
-        uint256 negativeDebtChangeApr = oracle.aprAfterDebtChange(_strategy, -int256(_delta));
+        skip(elapsed);
+        _airdropStEth(unrealizedProfit);
 
-        // The apr should go up if deposits go down
-        assertLt(currentApr, negativeDebtChangeApr, "negative change");
+        uint256 livePositionValue = _livePositionValue();
+        uint256 expectedApr = _expectedApr(
+            strategy.totalAssets(),
+            livePositionValue,
+            elapsed
+        );
+        assertGt(expectedApr, oracle.baseApr(), "expected apr not above base");
 
-        uint256 positiveDebtChangeApr = oracle.aprAfterDebtChange(_strategy, int256(_delta));
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 0),
+            expectedApr,
+            "bad apr"
+        );
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 100e18),
+            expectedApr,
+            "delta should be ignored"
+        );
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), -100e18),
+            expectedApr,
+            "negative delta should be ignored"
+        );
+    }
 
-        assertGt(currentApr, positiveDebtChangeApr, "positive change");
-        */
+    function test_oracleCountsPendingRedemptions() public {
+        uint256 assets = 100e18;
+        uint256 withdrawalAmount = 20e18;
+        uint256 unrealizedProfit = 1e18;
+        uint256 elapsed = 11 days + 3 hours;
 
-        // TODO: Uncomment if there are setter functions to test.
-        /**
-        vm.expectRevert("!governance");
-        vm.prank(user);
-        oracle.setterFunction(setterVariable);
+        _depositAndReport(assets);
 
         vm.prank(management);
-        oracle.setterFunction(setterVariable);
+        BaseLSTAccumulator(address(strategy)).initiateLSTWithdrawal(
+            withdrawalAmount
+        );
 
-        assertEq(oracle.setterVariable(), setterVariable);
-        */
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
+            address(strategy)
+        );
+        assertLt(
+            stethBalance,
+            strategy.totalAssets(),
+            "queue did not pull steth"
+        );
+        assertGt(
+            _livePositionValue(),
+            stethBalance,
+            "pending redemptions not added"
+        );
+
+        skip(elapsed);
+        _airdropStEth(unrealizedProfit);
+
+        uint256 livePositionValue = _livePositionValue();
+        uint256 expectedApr = _expectedApr(
+            strategy.totalAssets(),
+            livePositionValue,
+            elapsed
+        );
+        assertGt(expectedApr, oracle.baseApr(), "expected apr not above base");
+
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 0),
+            expectedApr,
+            "pending not counted"
+        );
     }
 
-    function test_oracle(uint256 _amount, uint16 _percentChange) public {
-        vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _percentChange = uint16(bound(uint256(_percentChange), 10, MAX_BPS));
+    function test_oracleReturnsBaseAprWhenUnrealizedAprIsLower() public {
+        uint256 assets = 100e18;
+        uint256 unrealizedProfit = 0.1e18;
+        uint256 elapsed = 60 days;
 
+        _depositAndReport(assets);
+
+        skip(elapsed);
+        _airdropStEth(unrealizedProfit);
+
+        uint256 expectedApr = _expectedApr(
+            strategy.totalAssets(),
+            _livePositionValue(),
+            elapsed
+        );
+        assertLt(expectedApr, oracle.baseApr(), "expected apr not below base");
+
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 0),
+            oracle.baseApr(),
+            "not base apr"
+        );
+    }
+
+    function test_oracleReturnsBaseAprWhenNoUnrealizedProfit() public {
+        _depositAndReport(100e18);
+
+        skip(13 days);
+
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 0),
+            oracle.baseApr(),
+            "not base apr"
+        );
+    }
+
+    function test_oracleReturnsBaseAprWhenElapsedTimeIsZero() public {
+        _depositAndReport(100e18);
+        _airdropStEth(1e18);
+
+        assertEq(
+            oracle.aprAfterDebtChange(address(strategy), 0),
+            oracle.baseApr(),
+            "not base apr"
+        );
+    }
+
+    function _depositAndReport(uint256 _amount) internal {
+        _forceDirectStake(_amount);
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        uint256 _delta = (_amount * _percentChange) / MAX_BPS;
+        vm.prank(management);
+        strategy.setDoHealthCheck(false);
 
-        checkOracle(address(strategy), _delta);
+        vm.prank(keeper);
+        strategy.report();
     }
 
-    // TODO: Deploy multiple strategies with different tokens as `asset` to test against the oracle.
+    function _forceDirectStake(uint256 _amount) internal {
+        vm.mockCall(
+            CURVE_POOL,
+            abi.encodeWithSelector(
+                ICurve.get_dy.selector,
+                int128(0),
+                int128(1),
+                _amount
+            ),
+            abi.encode(_amount - 1)
+        );
+    }
+
+    function _airdropStEth(uint256 _amount) internal {
+        vm.prank(STETH_WHALE);
+        ERC20(tokenAddrs["STETH"]).transfer(address(strategy), _amount);
+    }
+
+    function _livePositionValue() internal view returns (uint256) {
+        return
+            ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy)) +
+            BaseLSTAccumulator(address(strategy)).pendingRedemptions();
+    }
+
+    function _expectedApr(
+        uint256 _totalAssets,
+        uint256 _liveValue,
+        uint256 _elapsed
+    ) internal pure returns (uint256) {
+        return
+            ((_liveValue - _totalAssets) * SECONDS_PER_YEAR * 1e18) /
+            _elapsed /
+            _totalAssets;
+    }
+
+    function _setUpMockWithdrawalQueue() internal {
+        mockQueue = new MockWithdrawalQueue();
+
+        bytes memory runtimeCode = address(mockQueue).code;
+        vm.etch(WITHDRAWAL_QUEUE, runtimeCode);
+        vm.store(WITHDRAWAL_QUEUE, bytes32(uint256(1)), bytes32(uint256(1)));
+        vm.deal(WITHDRAWAL_QUEUE, 1000 ether);
+    }
 }

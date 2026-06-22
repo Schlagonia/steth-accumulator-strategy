@@ -1,37 +1,52 @@
 // SPDX-License-Identifier: AGPL-3.0
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.23;
 
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {AprOracleBase} from "@periphery/AprOracle/AprOracleBase.sol";
+import {IStrategyInterface} from "../interfaces/IStrategyInterface.sol";
 
 contract StrategyAprOracle is AprOracleBase {
-    constructor() AprOracleBase("Strategy Apr Oracle Example", msg.sender) {}
+    uint256 internal constant SECONDS_PER_YEAR = 31_556_952;
+    uint256 public baseApr = 2.5e16;
+
+    constructor() AprOracleBase("stETH Accumulator APR Oracle", msg.sender) {}
 
     /**
-     * @notice Will return the expected Apr of a strategy post a debt change.
-     * @dev _delta is a signed integer so that it can also represent a debt
-     * decrease.
+     * @notice Estimate the live APR the strategy would report right now.
+     * @dev `_delta` is intentionally ignored. This oracle is based on the
+     * strategy's current live stETH exposure plus pending redemptions vs the
+     * last reported `totalAssets`.
      *
-     * This should return the annual expected return at the current timestamp
-     * represented as 1e18.
-     *
-     *      ie. 10% == 1e17
-     *
-     * _delta will be == 0 to get the current apr.
-     *
-     * This will potentially be called during non-view functions so gas
-     * efficiency should be taken into account.
-     *
-     * @param _strategy The token to get the apr for.
-     * @param _delta The difference in debt.
-     * @return . The expected apr for the strategy represented as 1e18.
+     * APR is returned as 1e18 where 10% = 1e17.
      */
     function aprAfterDebtChange(
         address _strategy,
-        int256 _delta
+        int256 /*_delta*/
     ) external view override returns (uint256) {
-        // Return a simple estimation for stETH APR
-        // stETH typically yields around 3-5% APR
-        // We'll return 4% as base APR (4e16)
-        return 4e16;
+        IStrategyInterface strategy = IStrategyInterface(_strategy);
+        uint256 _baseApr = baseApr;
+
+        uint256 totalAssets = strategy.totalAssets();
+        if (totalAssets == 0) return _baseApr;
+
+        uint256 livePositionValue = ERC20(strategy.LST()).balanceOf(_strategy) +
+            strategy.pendingRedemptions();
+        if (livePositionValue <= totalAssets) return _baseApr;
+
+        uint256 lastReport = strategy.lastReport();
+        if (block.timestamp <= lastReport) return _baseApr;
+
+        uint256 elapsed = block.timestamp - lastReport;
+        uint256 unrealizedProfit = livePositionValue - totalAssets;
+        uint256 unrealizedApr =
+            (unrealizedProfit * SECONDS_PER_YEAR * 1e18) /
+            elapsed /
+            totalAssets;
+
+        return unrealizedApr > _baseApr ? unrealizedApr : _baseApr;
+    }
+
+    function setBaseApr(uint256 _baseApr) external virtual onlyGovernance {
+        baseApr = _baseApr;
     }
 }
