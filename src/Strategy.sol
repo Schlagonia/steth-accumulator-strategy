@@ -57,7 +57,7 @@ contract Strategy is BaseLSTAccumulator {
 
     /// @notice Stake ETH to stETH using the most optimal route
     /// @param _amount Amount of WETH to stake
-    function _stake(uint256 _amount) internal override {
+    function _stake(uint256 _amount) internal virtual override {
         if (_amount == 0) return;
 
         // Convert WETH to ETH

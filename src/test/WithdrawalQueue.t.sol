@@ -161,8 +161,6 @@ contract WithdrawalQueueTest is Setup {
         // Setup with large deposit
         mintAndDepositIntoStrategy(strategy, user, _amount);
         skip(1 days);
-        vm.prank(keeper);
-        strategy.report();
 
         Strategy stethStrategy = Strategy(payable(address(strategy)));
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
