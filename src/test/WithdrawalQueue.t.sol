@@ -2,15 +2,12 @@
 pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
-import {Setup, ERC20, IStrategyInterface} from "./utils/Setup.sol";
-import {BaseLSTAccumulator} from "../BaseLSTAccumulator.sol";
-import {Strategy} from "../Strategy.sol";
+import {Setup, ERC20} from "./utils/Setup.sol";
 import {IQueue} from "../interfaces/IQueue.sol";
 import {MockWithdrawalQueue} from "./mocks/MockWithdrawalQueue.sol";
 
 contract WithdrawalQueueTest is Setup {
-    address constant WITHDRAWAL_QUEUE =
-        0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
+    address constant WITHDRAWAL_QUEUE = 0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1;
     MockWithdrawalQueue mockQueue;
 
     function setUp() public virtual override {
@@ -44,16 +41,12 @@ contract WithdrawalQueueTest is Setup {
         strategy.report();
 
         // Check stETH balance
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBalance, 0, "No stETH to withdraw");
 
         // Initiate withdrawal (will use real mock queue)
         vm.prank(management);
-        bytes memory returnData = BaseLSTAccumulator(address(stethStrategy))
-            .initiateLSTWithdrawal(stethBalance);
+        bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
 
         // Decode request ID
         uint256[] memory requestIds = abi.decode(returnData, (uint256[]));
@@ -61,11 +54,7 @@ contract WithdrawalQueueTest is Setup {
         assertGt(requestIds[0], 0, "Invalid request ID");
 
         // Check pending redemptions updated
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).pendingRedemptions(),
-            stethBalance,
-            "Pending redemptions not updated"
-        );
+        assertEq(strategy.pendingRedemptions(), stethBalance, "Pending redemptions not updated");
     }
 
     function test_claimLSTWithdrawal() public {
@@ -76,16 +65,11 @@ contract WithdrawalQueueTest is Setup {
         skip(1 days);
         vm.prank(keeper);
         strategy.report();
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate withdrawal
         vm.prank(management);
-        bytes memory returnData = BaseLSTAccumulator(address(stethStrategy))
-            .initiateLSTWithdrawal(stethBalance);
+        bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
         uint256[] memory requestIds = abi.decode(returnData, (uint256[]));
 
         // Get WETH balance before
@@ -93,27 +77,17 @@ contract WithdrawalQueueTest is Setup {
 
         // Claim withdrawal (mock queue will send ETH)
         vm.prank(management);
-        uint256 claimedAmount = BaseLSTAccumulator(address(stethStrategy))
-            .claimLSTWithdrawal(abi.encode(requestIds[0]));
+        uint256 claimedAmount = strategy.claimLSTWithdrawal(abi.encode(requestIds[0]));
 
         // Check the claimed amount matches
-        assertApproxEqAbs(
-            claimedAmount,
-            stethBalance,
-            2,
-            "Wrong claimed amount"
-        );
+        assertApproxEqAbs(claimedAmount, stethBalance, 2, "Wrong claimed amount");
 
         // Check WETH was received
         uint256 wethAfter = asset.balanceOf(address(strategy));
         assertGe(wethAfter - wethBefore, claimedAmount, "WETH not received");
 
         // Check pending redemptions cleared
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).pendingRedemptions(),
-            0,
-            "Pending redemptions not cleared"
-        );
+        assertEq(strategy.pendingRedemptions(), 0, "Pending redemptions not cleared");
     }
 
     function test_cannotHarvestWithPendingRedemptions() public {
@@ -124,17 +98,12 @@ contract WithdrawalQueueTest is Setup {
         skip(1 days);
         vm.prank(keeper);
         strategy.report();
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate withdrawal
         uint256[] memory requestIds;
         vm.prank(management);
-        bytes memory returnData = BaseLSTAccumulator(address(stethStrategy))
-            .initiateLSTWithdrawal(stethBalance / 2);
+        bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance / 2);
         requestIds = abi.decode(returnData, (uint256[]));
 
         // Try to harvest - should revert with pending redemptions
@@ -145,13 +114,11 @@ contract WithdrawalQueueTest is Setup {
         // Complete the withdrawal (mock queue handles ETH transfer)
 
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).claimLSTWithdrawal(
-            abi.encode(requestIds[0])
-        );
+        strategy.claimLSTWithdrawal(abi.encode(requestIds[0]));
 
         // Now harvest should work
         vm.prank(keeper);
-        (uint256 profit, ) = strategy.report();
+        (uint256 profit,) = strategy.report();
         assertGe(profit, 0, "Report failed after clearing redemptions");
     }
 
@@ -161,17 +128,12 @@ contract WithdrawalQueueTest is Setup {
         // Setup with large deposit
         mintAndDepositIntoStrategy(strategy, user, _amount);
         skip(1 days);
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate first withdrawal
         uint256 firstWithdrawal = stethBalance / 3;
         vm.prank(management);
-        bytes memory returnData1 = BaseLSTAccumulator(address(stethStrategy))
-            .initiateLSTWithdrawal(firstWithdrawal);
+        bytes memory returnData1 = strategy.initiateLSTWithdrawal(firstWithdrawal);
         uint256[] memory requestIds1 = abi.decode(returnData1, (uint256[]));
 
         // Cannot harvest with pending
@@ -182,31 +144,23 @@ contract WithdrawalQueueTest is Setup {
         // Complete first withdrawal (mock queue handles ETH)
 
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).claimLSTWithdrawal(
-            abi.encode(requestIds1[0])
-        );
+        strategy.claimLSTWithdrawal(abi.encode(requestIds1[0]));
 
         // Can harvest now
         vm.prank(keeper);
         strategy.report();
 
         // Verify multiple withdrawals can be initiated
-        uint256 remainingSteth = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 remainingSteth = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         if (remainingSteth > 0) {
             uint256[] memory requestIds2 = new uint256[](1);
             requestIds2[0] = 12346; // Different mock ID
             vm.mockCall(
-                WITHDRAWAL_QUEUE,
-                abi.encodeWithSelector(IQueue.requestWithdrawals.selector),
-                abi.encode(requestIds2)
+                WITHDRAWAL_QUEUE, abi.encodeWithSelector(IQueue.requestWithdrawals.selector), abi.encode(requestIds2)
             );
 
             vm.prank(management);
-            bytes memory returnData2 = BaseLSTAccumulator(
-                address(stethStrategy)
-            ).initiateLSTWithdrawal(remainingSteth);
+            bytes memory returnData2 = strategy.initiateLSTWithdrawal(remainingSteth);
             uint256[] memory decodedIds2 = abi.decode(returnData2, (uint256[]));
             assertEq(decodedIds2[0], requestIds2[0], "Wrong second request ID");
         }
@@ -220,20 +174,13 @@ contract WithdrawalQueueTest is Setup {
         skip(1 days);
         vm.prank(keeper);
         strategy.report();
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate withdrawal to create pending redemptions
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).initiateLSTWithdrawal(
-            stethBalance
-        );
+        strategy.initiateLSTWithdrawal(stethBalance);
 
-        uint256 pending = BaseLSTAccumulator(address(stethStrategy))
-            .pendingRedemptions();
+        uint256 pending = strategy.pendingRedemptions();
         assertEq(pending, stethBalance, "Pending not set");
 
         // Cannot harvest with pending
@@ -244,14 +191,8 @@ contract WithdrawalQueueTest is Setup {
         // Partially clear
         uint256 halfPending = pending / 2;
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).clearPendingRedemptions(
-            halfPending
-        );
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).pendingRedemptions(),
-            pending - halfPending,
-            "Partial clear failed"
-        );
+        strategy.clearPendingRedemptions(halfPending);
+        assertEq(strategy.pendingRedemptions(), pending - halfPending, "Partial clear failed");
 
         // Still cannot harvest
         vm.prank(keeper);
@@ -260,19 +201,13 @@ contract WithdrawalQueueTest is Setup {
 
         // Clear remaining
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).clearPendingRedemptions(
-            pending
-        );
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).pendingRedemptions(),
-            0,
-            "Full clear failed"
-        );
+        strategy.clearPendingRedemptions(pending);
+        assertEq(strategy.pendingRedemptions(), 0, "Full clear failed");
 
         // Non-management cannot clear
         vm.prank(user);
         vm.expectRevert("!management");
-        BaseLSTAccumulator(address(stethStrategy)).clearPendingRedemptions(1);
+        strategy.clearPendingRedemptions(1);
     }
 
     function test_manualClaimWithdrawals() public {
@@ -283,16 +218,11 @@ contract WithdrawalQueueTest is Setup {
         skip(1 days);
         vm.prank(keeper);
         strategy.report();
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate withdrawal through normal path
         vm.prank(management);
-        bytes memory returnData = BaseLSTAccumulator(address(stethStrategy))
-            .initiateLSTWithdrawal(stethBalance);
+        bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
         uint256[] memory requestIds = abi.decode(returnData, (uint256[]));
 
         uint256 wethBefore = asset.balanceOf(address(strategy));
@@ -302,23 +232,19 @@ contract WithdrawalQueueTest is Setup {
         hints[0] = 0; // Mock doesn't use hints
 
         vm.prank(emergencyAdmin);
-        stethStrategy.manualClaimWithdrawals(requestIds, hints, true);
+        strategy.manualClaimWithdrawals(requestIds, hints, true);
 
         // Check WETH was received
         uint256 wethAfter = asset.balanceOf(address(strategy));
         assertGt(wethAfter, wethBefore, "WETH not received");
 
         // Check pending redemptions zeroed
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).pendingRedemptions(),
-            0,
-            "Pending redemptions not zeroed"
-        );
+        assertEq(strategy.pendingRedemptions(), 0, "Pending redemptions not zeroed");
 
         // Non-emergency-authorized cannot call
         vm.prank(user);
         vm.expectRevert("!emergency authorized");
-        stethStrategy.manualClaimWithdrawals(requestIds, hints, false);
+        strategy.manualClaimWithdrawals(requestIds, hints, false);
     }
 
     function test_manualClaimWithdrawals_keepRedemptions() public {
@@ -329,20 +255,13 @@ contract WithdrawalQueueTest is Setup {
         skip(1 days);
         vm.prank(keeper);
         strategy.report();
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate withdrawal
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).initiateLSTWithdrawal(
-            stethBalance
-        );
+        strategy.initiateLSTWithdrawal(stethBalance);
 
-        uint256 pendingBefore = BaseLSTAccumulator(address(stethStrategy))
-            .pendingRedemptions();
+        uint256 pendingBefore = strategy.pendingRedemptions();
         assertGt(pendingBefore, 0, "No pending redemptions");
 
         // Decode request IDs
@@ -356,13 +275,9 @@ contract WithdrawalQueueTest is Setup {
 
         // Claim with zeroRedemptions=false
         vm.prank(emergencyAdmin);
-        stethStrategy.manualClaimWithdrawals(requestIds, hints, false);
+        strategy.manualClaimWithdrawals(requestIds, hints, false);
 
         // Pending redemptions should NOT be zeroed
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).pendingRedemptions(),
-            pendingBefore,
-            "Pending redemptions should not change"
-        );
+        assertEq(strategy.pendingRedemptions(), pendingBefore, "Pending redemptions should not change");
     }
 }

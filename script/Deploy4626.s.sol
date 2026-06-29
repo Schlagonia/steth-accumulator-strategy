@@ -15,9 +15,7 @@ contract Deploy4626 is Script {
 
         vm.startBroadcast();
 
-        IStrategyInterface strategy = IStrategyInterface(
-            address(new Strategy4626(WETH, name, vault))
-        );
+        IStrategyInterface strategy = IStrategyInterface(address(new Strategy4626(WETH, name, vault)));
 
         vm.stopBroadcast();
 

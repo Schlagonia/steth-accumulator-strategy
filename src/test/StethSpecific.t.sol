@@ -2,12 +2,9 @@
 pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
-import {Setup, ERC20, IStrategyInterface} from "./utils/Setup.sol";
-import {BaseLSTAccumulator} from "../BaseLSTAccumulator.sol";
-import {Strategy} from "../Strategy.sol";
+import {Setup, ERC20} from "./utils/Setup.sol";
 import {ISTETH} from "../interfaces/ISTETH.sol";
 import {ICurve} from "../interfaces/ICurve.sol";
-import {IWETH} from "../interfaces/IWETH.sol";
 
 contract StethSpecificTest is Setup {
     address constant CURVE_POOL = 0xDC24316b9AE028F1497c275EB9192a3Ea0f67022;
@@ -17,22 +14,20 @@ contract StethSpecificTest is Setup {
     }
 
     function test_setReferral() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Check initial referral is not set
-        assertEq(stethStrategy.referral(), address(0), "Referral already set");
+        assertEq(strategy.referral(), address(0), "Referral already set");
 
         // Non-management cannot set referral
         vm.prank(user);
         vm.expectRevert("!management");
-        stethStrategy.setReferral(user);
+        strategy.setReferral(user);
 
         // Management can set referral
         address newReferral = address(0x123);
         vm.prank(management);
-        stethStrategy.setReferral(newReferral);
+        strategy.setReferral(newReferral);
 
-        assertEq(stethStrategy.referral(), newReferral, "Referral not set");
+        assertEq(strategy.referral(), newReferral, "Referral not set");
     }
 
     function test_receiveETH() public {
@@ -41,9 +36,7 @@ contract StethSpecificTest is Setup {
 
         // Send ETH directly to strategy
         vm.deal(address(this), ethAmount);
-        (bool success, ) = payable(address(strategy)).call{value: ethAmount}(
-            ""
-        );
+        (bool success,) = payable(address(strategy)).call{value: ethAmount}("");
         assertTrue(success, "Failed to send ETH");
 
         // The strategy may have existing balance, check it increased
@@ -57,12 +50,7 @@ contract StethSpecificTest is Setup {
         // This will make strategy use direct staking
         vm.mockCall(
             CURVE_POOL,
-            abi.encodeWithSelector(
-                ICurve.get_dy.selector,
-                int128(0),
-                int128(1),
-                _amount
-            ),
+            abi.encodeWithSelector(ICurve.get_dy.selector, int128(0), int128(1), _amount),
             abi.encode(_amount - 1) // Return slightly less than 1:1
         );
 
@@ -70,9 +58,7 @@ contract StethSpecificTest is Setup {
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // Check that stETH was received (approximately 1:1)
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertApproxEqAbs(stethBalance, _amount, 2, "stETH not received 1:1");
     }
 
@@ -84,12 +70,7 @@ contract StethSpecificTest is Setup {
         uint256 betterRate = _amount + 0.01 ether;
         vm.mockCall(
             CURVE_POOL,
-            abi.encodeWithSelector(
-                ICurve.get_dy.selector,
-                int128(0),
-                int128(1),
-                _amount
-            ),
+            abi.encodeWithSelector(ICurve.get_dy.selector, int128(0), int128(1), _amount),
             abi.encode(betterRate) // Return more than 1:1
         );
 
@@ -97,13 +78,7 @@ contract StethSpecificTest is Setup {
         vm.mockCall(
             CURVE_POOL,
             _amount,
-            abi.encodeWithSelector(
-                ICurve.exchange.selector,
-                int128(0),
-                int128(1),
-                _amount,
-                _amount
-            ),
+            abi.encodeWithSelector(ICurve.exchange.selector, int128(0), int128(1), _amount, _amount),
             abi.encode(0)
         );
 
@@ -123,33 +98,23 @@ contract StethSpecificTest is Setup {
     }
 
     function test_availableDepositLimit_whenStakingPaused() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // First enable open deposits
-        vm.prank(emergencyAdmin);
-        BaseLSTAccumulator(address(stethStrategy)).setOpenDeposits(true);
+        vm.prank(management);
+        strategy.setOpenDeposits(true);
 
         // Check deposit limit is available normally
         uint256 limitBefore = strategy.availableDepositLimit(user);
         assertGt(limitBefore, 0, "No deposit limit available");
 
         // Mock staking paused
-        vm.mockCall(
-            tokenAddrs["STETH"],
-            abi.encodeWithSelector(ISTETH.isStakingPaused.selector),
-            abi.encode(true)
-        );
+        vm.mockCall(tokenAddrs["STETH"], abi.encodeWithSelector(ISTETH.isStakingPaused.selector), abi.encode(true));
 
         // Check deposit limit is now 0
         uint256 limitAfter = strategy.availableDepositLimit(user);
         assertEq(limitAfter, 0, "Deposit limit not 0 when staking paused");
 
         // Unmock - staking not paused
-        vm.mockCall(
-            tokenAddrs["STETH"],
-            abi.encodeWithSelector(ISTETH.isStakingPaused.selector),
-            abi.encode(false)
-        );
+        vm.mockCall(tokenAddrs["STETH"], abi.encodeWithSelector(ISTETH.isStakingPaused.selector), abi.encode(false));
 
         // Limit should be available again
         uint256 limitRestored = strategy.availableDepositLimit(user);
@@ -158,17 +123,13 @@ contract StethSpecificTest is Setup {
 
     function test_accessControl_deposits() public {
         uint256 _amount = 10 ether;
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
 
         // Deposits are open by default in test setup
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).openDeposits(),
-            true
-        );
+        assertEq(strategy.openDeposits(), true);
 
         // Close deposits
-        vm.prank(emergencyAdmin);
-        BaseLSTAccumulator(address(stethStrategy)).setOpenDeposits(false);
+        vm.prank(management);
+        strategy.setOpenDeposits(false);
 
         // User cannot deposit when closed
         airdrop(asset, user, _amount);
@@ -180,8 +141,8 @@ contract StethSpecificTest is Setup {
         strategy.deposit(_amount, user);
 
         // Add user to allowed list
-        vm.prank(emergencyAdmin);
-        BaseLSTAccumulator(address(stethStrategy)).setAllowed(user, true);
+        vm.prank(management);
+        strategy.setAllowed(user, true);
 
         // Now user can deposit even when closed
         vm.prank(user);
@@ -189,8 +150,8 @@ contract StethSpecificTest is Setup {
         assertGt(shares, 0, "No shares minted");
 
         // Open deposits for everyone again
-        vm.prank(emergencyAdmin);
-        BaseLSTAccumulator(address(stethStrategy)).setOpenDeposits(true);
+        vm.prank(management);
+        strategy.setOpenDeposits(true);
 
         // Another user can now deposit
         address user2 = address(0x123);
@@ -205,11 +166,10 @@ contract StethSpecificTest is Setup {
 
     function test_manualStakeAndSwap() public {
         uint256 _amount = 10 ether;
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
 
         // First disable auto-staking
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setStakeAsset(false);
+        strategy.setStakeAsset(false);
 
         // Deposit - should not auto-stake
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -217,14 +177,12 @@ contract StethSpecificTest is Setup {
         uint256 wethBalance = asset.balanceOf(address(strategy));
         assertEq(wethBalance, _amount, "WETH was staked");
 
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertEq(stethBalance, 0, "stETH already exists");
 
         // Manually stake
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).manualStake(_amount);
+        strategy.manualStake(_amount);
 
         wethBalance = asset.balanceOf(address(strategy));
         assertEq(wethBalance, 0, "WETH not staked");
@@ -234,10 +192,7 @@ contract StethSpecificTest is Setup {
 
         // Manually swap back
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).manualSwapToAsset(
-            stethBalance,
-            0
-        );
+        strategy.manualSwapToAsset(stethBalance, 0);
 
         wethBalance = asset.balanceOf(address(strategy));
         assertGt(wethBalance, 0, "No WETH received");
@@ -247,16 +202,14 @@ contract StethSpecificTest is Setup {
     }
 
     function test_depositLimit() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Set a deposit limit
         uint256 limit = 100 ether;
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setDepositLimit(limit);
+        strategy.setDepositLimit(limit);
 
         // Open deposits
-        vm.prank(emergencyAdmin);
-        BaseLSTAccumulator(address(stethStrategy)).setOpenDeposits(true);
+        vm.prank(management);
+        strategy.setOpenDeposits(true);
 
         // Check available limit
         uint256 available = strategy.availableDepositLimit(user);
@@ -270,16 +223,8 @@ contract StethSpecificTest is Setup {
         available = strategy.availableDepositLimit(user);
         uint256 expectedRemaining = limit / 2;
         uint256 tolerance = (limit * 5) / 1000; // 0.5% tolerance
-        assertLe(
-            available,
-            expectedRemaining + tolerance,
-            "Wrong remaining limit - too high"
-        );
-        assertGe(
-            available,
-            expectedRemaining - tolerance,
-            "Wrong remaining limit - too low"
-        );
+        assertLe(available, expectedRemaining + tolerance, "Wrong remaining limit - too high");
+        assertGe(available, expectedRemaining - tolerance, "Wrong remaining limit - too low");
 
         // Try to deposit more than limit
         uint256 tooMuch = limit;
@@ -308,135 +253,88 @@ contract StethSpecificTest is Setup {
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // Get some stETH balance
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBalance, 0, "No stETH to swap");
 
         // Swap through Curve (manual swap)
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).manualSwapToAsset(
-            stethBalance,
-            0
-        );
+        strategy.manualSwapToAsset(stethBalance, 0);
 
         // Should have WETH back
         uint256 wethBalance = asset.balanceOf(address(strategy));
         assertGt(wethBalance, 0, "No WETH after swap");
 
         // stETH should be gone (allow for dust)
-        uint256 remainingSteth = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 remainingSteth = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertLe(remainingSteth, 2, "stETH not fully swapped");
     }
 
     function test_reportBuffer() public {
         uint256 _amount = 10 ether;
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
 
         // Deposit and stake
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        uint256 estimatedBefore = BaseLSTAccumulator(address(stethStrategy))
-            .estimatedTotalAssets();
+        uint256 estimatedBefore = strategy.estimatedTotalAssets();
         assertGt(estimatedBefore, 0, "No estimated assets");
 
         // Set report buffer to 1% (100 BPS)
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setReportBuffer(100);
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).reportBuffer(),
-            100,
-            "Report buffer not set"
-        );
+        strategy.setReportBuffer(100);
+        assertEq(strategy.reportBuffer(), 100, "Report buffer not set");
 
-        uint256 estimatedAfter = BaseLSTAccumulator(address(stethStrategy))
-            .estimatedTotalAssets();
+        uint256 estimatedAfter = strategy.estimatedTotalAssets();
 
         // Estimated assets should be lower with buffer applied
-        assertLt(
-            estimatedAfter,
-            estimatedBefore,
-            "Buffer did not reduce estimated assets"
-        );
+        assertLt(estimatedAfter, estimatedBefore, "Buffer did not reduce estimated assets");
 
         // The difference should be ~1% of LST value
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         uint256 expectedDiscount = (stethBalance * 100) / MAX_BPS;
-        assertApproxEqAbs(
-            estimatedBefore - estimatedAfter,
-            expectedDiscount,
-            2,
-            "Buffer discount incorrect"
-        );
+        assertApproxEqAbs(estimatedBefore - estimatedAfter, expectedDiscount, 2, "Buffer discount incorrect");
 
         // Non-management cannot set
         vm.prank(user);
         vm.expectRevert("!management");
-        BaseLSTAccumulator(address(stethStrategy)).setReportBuffer(200);
+        strategy.setReportBuffer(200);
     }
 
     function test_setMinAmountToTend() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Default is type(uint256).max
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).minAmountToTend(),
-            type(uint256).max,
-            "Wrong default minAmountToTend"
-        );
+        assertEq(strategy.minAmountToTend(), type(uint256).max, "Wrong default minAmountToTend");
 
         // Management can set
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setMinAmountToTend(1 ether);
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).minAmountToTend(),
-            1 ether,
-            "minAmountToTend not set"
-        );
+        strategy.setMinAmountToTend(1 ether);
+        assertEq(strategy.minAmountToTend(), 1 ether, "minAmountToTend not set");
 
         // Non-management cannot set
         vm.prank(user);
         vm.expectRevert("!management");
-        BaseLSTAccumulator(address(stethStrategy)).setMinAmountToTend(2 ether);
+        strategy.setMinAmountToTend(2 ether);
     }
 
     function test_setMaxGasPriceToTend() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Default is 10 gwei
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).maxGasPriceToTend(),
-            10e9,
-            "Wrong default maxGasPriceToTend"
-        );
+        assertEq(strategy.maxGasPriceToTend(), 10e9, "Wrong default maxGasPriceToTend");
 
         // Management can set
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setMaxGasPriceToTend(50e9);
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).maxGasPriceToTend(),
-            50e9,
-            "maxGasPriceToTend not set"
-        );
+        strategy.setMaxGasPriceToTend(50e9);
+        assertEq(strategy.maxGasPriceToTend(), 50e9, "maxGasPriceToTend not set");
 
         // Non-management cannot set
         vm.prank(user);
         vm.expectRevert("!management");
-        BaseLSTAccumulator(address(stethStrategy)).setMaxGasPriceToTend(100e9);
+        strategy.setMaxGasPriceToTend(100e9);
     }
 
     function test_harvestStakesBypassesStakeAssetFlag() public {
         uint256 _amount = 10 ether;
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
 
         // Disable auto-staking on deposit
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setStakeAsset(false);
+        strategy.setStakeAsset(false);
 
         // Deposit - should NOT auto-stake
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -450,41 +348,25 @@ contract StethSpecificTest is Setup {
         strategy.report();
 
         // WETH should now be staked to stETH
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBalance, 0, "Harvest did not stake idle WETH");
-        assertEq(
-            asset.balanceOf(address(strategy)),
-            0,
-            "WETH not fully staked during harvest"
-        );
+        assertEq(asset.balanceOf(address(strategy)), 0, "WETH not fully staked during harvest");
     }
 
     function test_selfAllowedByDefault() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Strategy address should be in allowed list by default
-        assertTrue(
-            BaseLSTAccumulator(address(stethStrategy)).allowed(
-                address(strategy)
-            ),
-            "Strategy not self-allowed"
-        );
+        assertTrue(strategy.allowed(address(strategy)), "Strategy not self-allowed");
     }
 
     function test_depositLimitExhaustedByProfit() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Deposit some amount
         uint256 _amount = 10 ether;
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // Set deposit limit equal to current estimated assets
-        uint256 estimated = BaseLSTAccumulator(address(stethStrategy))
-            .estimatedTotalAssets();
+        uint256 estimated = strategy.estimatedTotalAssets();
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setDepositLimit(estimated);
+        strategy.setDepositLimit(estimated);
 
         // Available deposit limit should be 0 (at capacity)
         uint256 available = strategy.availableDepositLimit(user);
@@ -492,9 +374,7 @@ contract StethSpecificTest is Setup {
 
         // Set limit below current assets (over-limit scenario)
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setDepositLimit(
-            estimated / 2
-        );
+        strategy.setDepositLimit(estimated / 2);
 
         // Available should still be 0 (clamped, not underflow)
         available = strategy.availableDepositLimit(user);
@@ -511,38 +391,29 @@ contract StethSpecificTest is Setup {
     }
 
     function test_depositLimitWithReportBuffer() public {
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Deposit some amount
         uint256 _amount = 10 ether;
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        uint256 estimated = BaseLSTAccumulator(address(stethStrategy))
-            .estimatedTotalAssets();
+        uint256 estimated = strategy.estimatedTotalAssets();
 
         // Set deposit limit equal to estimated assets - at capacity
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setDepositLimit(estimated);
+        strategy.setDepositLimit(estimated);
 
         uint256 available = strategy.availableDepositLimit(user);
         assertEq(available, 0, "Should be at limit");
 
         // Set report buffer (10%) - discounts LST value, opening deposit room
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setReportBuffer(1000);
+        strategy.setReportBuffer(1000);
 
-        uint256 newEstimated = BaseLSTAccumulator(address(stethStrategy))
-            .estimatedTotalAssets();
+        uint256 newEstimated = strategy.estimatedTotalAssets();
         assertLt(newEstimated, estimated, "Buffer should reduce estimated");
 
         // Deposit room should now exist
         available = strategy.availableDepositLimit(user);
         assertGt(available, 0, "Buffer should open deposit room");
-        assertApproxEqAbs(
-            available,
-            estimated - newEstimated,
-            1,
-            "Wrong available after buffer"
-        );
+        assertApproxEqAbs(available, estimated - newEstimated, 1, "Wrong available after buffer");
     }
 }

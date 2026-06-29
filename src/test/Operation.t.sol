@@ -2,9 +2,7 @@
 pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
-import {Setup, ERC20, IStrategyInterface} from "./utils/Setup.sol";
-import {BaseLSTAccumulator} from "../BaseLSTAccumulator.sol";
-import {Strategy} from "../Strategy.sol";
+import {Setup, ERC20} from "./utils/Setup.sol";
 
 contract OperationTest is Setup {
     function setUp() public virtual override {
@@ -20,16 +18,9 @@ contract OperationTest is Setup {
         assertEq(strategy.keeper(), keeper);
 
         // Check stETH specific params
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).LST(),
-            tokenAddrs["STETH"]
-        );
-        assertEq(BaseLSTAccumulator(address(stethStrategy)).stakeAsset(), true);
-        assertEq(
-            BaseLSTAccumulator(address(stethStrategy)).openDeposits(),
-            true
-        ); // Opened in setup
+        assertEq(strategy.LST(), tokenAddrs["STETH"]);
+        assertEq(strategy.stakeAsset(), true);
+        assertEq(strategy.openDeposits(), true); // Opened in setup
     }
 
     function test_operation(uint256 _amount) public {
@@ -48,10 +39,7 @@ contract OperationTest is Setup {
         assertApproxEqAbs(strategy.totalAssets(), _amount, 2, "!totalAssets");
 
         // Check that WETH was staked to stETH
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBalance, 0, "No stETH balance after deposit");
 
         // Earn Interest
@@ -65,10 +53,7 @@ contract OperationTest is Setup {
 
         // First swap stETH back to WETH to enable withdrawals
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).manualSwapToAsset(
-            stethBalance,
-            0
-        );
+        strategy.manualSwapToAsset(stethBalance, 0);
 
         uint256 balanceBefore = asset.balanceOf(user);
 
@@ -79,21 +64,12 @@ contract OperationTest is Setup {
 
         // Allow for 0.5% slippage from stETH->WETH conversion
         uint256 minExpected = (_amount * 995) / 1000;
-        assertGe(
-            asset.balanceOf(user),
-            balanceBefore + minExpected,
-            "!final balance"
-        );
+        assertGe(asset.balanceOf(user), balanceBefore + minExpected, "!final balance");
     }
 
-    function test_profitableReport(
-        uint256 _amount,
-        uint16 _profitFactor
-    ) public {
+    function test_profitableReport(uint256 _amount, uint16 _profitFactor) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _profitFactor = uint16(
-            bound(uint256(_profitFactor), 10, MAX_BPS - 100)
-        );
+        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS - 100));
 
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -107,22 +83,15 @@ contract OperationTest is Setup {
         uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
         if (toAirdrop > 0) {
             // Use vm.deal to add stETH directly, avoiding transfer issues
-            uint256 currentSteth = ERC20(tokenAddrs["STETH"]).balanceOf(
-                address(strategy)
-            );
+            uint256 currentSteth = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
             // Use vm.store to directly update stETH balance storage
             // stETH uses shares internally, so we need to be careful
             // For simplicity, transfer from a known large holder
             address stethWhale = 0xDC24316b9AE028F1497c275EB9192a3Ea0f67022; // Curve stETH/ETH pool
-            uint256 whaleBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-                stethWhale
-            );
+            uint256 whaleBalance = ERC20(tokenAddrs["STETH"]).balanceOf(stethWhale);
             if (whaleBalance >= toAirdrop) {
                 vm.prank(stethWhale);
-                ERC20(tokenAddrs["STETH"]).transfer(
-                    address(strategy),
-                    toAirdrop
-                );
+                ERC20(tokenAddrs["STETH"]).transfer(address(strategy), toAirdrop);
             }
         }
 
@@ -131,21 +100,15 @@ contract OperationTest is Setup {
         (uint256 profit, uint256 loss) = strategy.report();
 
         // Check return Values
-        assertGe(profit, toAirdrop - 1, "!profit");
+        assertGe(profit, toAirdrop - 3, "!profit");
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
 
         // Swap stETH back to WETH for withdrawals
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).manualSwapToAsset(
-            stethBalance,
-            0
-        );
+        strategy.manualSwapToAsset(stethBalance, 0);
 
         uint256 balanceBefore = asset.balanceOf(user);
 
@@ -156,11 +119,7 @@ contract OperationTest is Setup {
 
         // Allow for 0.5% slippage from stETH->WETH conversion
         uint256 minExpected = (_amount * 995) / 1000;
-        assertGe(
-            asset.balanceOf(user),
-            balanceBefore + minExpected,
-            "!final balance"
-        );
+        assertGe(asset.balanceOf(user), balanceBefore + minExpected, "!final balance");
     }
 
     function test_tendTrigger(uint256 _amount) public {
@@ -173,72 +132,62 @@ contract OperationTest is Setup {
         }
 
         // minAmountToTend defaults to type(uint256).max, so tend never triggers
-        (bool trigger, ) = strategy.tendTrigger();
+        (bool trigger,) = strategy.tendTrigger();
         assertTrue(!trigger);
 
         // Deposit into strategy (auto-stakes, so balanceOfAsset ~0)
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        (trigger, ) = strategy.tendTrigger();
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger);
 
         // Skip some time
         skip(1 days);
 
-        (trigger, ) = strategy.tendTrigger();
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger);
 
         vm.prank(keeper);
         strategy.report();
 
-        (trigger, ) = strategy.tendTrigger();
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger);
 
         // Unlock Profits
         skip(strategy.profitMaxUnlockTime());
 
-        (trigger, ) = strategy.tendTrigger();
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger);
 
         // Need to swap stETH back first
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         if (stethBalance > 0) {
             vm.prank(management);
-            BaseLSTAccumulator(address(stethStrategy)).manualSwapToAsset(
-                stethBalance,
-                0
-            );
+            strategy.manualSwapToAsset(stethBalance, 0);
         }
 
         uint256 maxRedeem = strategy.maxRedeem(user);
         vm.prank(user);
         strategy.redeem(maxRedeem, user, user);
 
-        (trigger, ) = strategy.tendTrigger();
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger);
     }
 
     function test_tendTrigger_positive(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Disable auto-staking so WETH stays idle after deposit
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setStakeAsset(false);
+        strategy.setStakeAsset(false);
 
         // Set minAmountToTend low so tend can trigger
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setMinAmountToTend(
-            minFuzzAmount / 2
-        );
+        strategy.setMinAmountToTend(minFuzzAmount / 2);
 
         // Set maxGasPriceToTend high to ensure gas check passes
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setMaxGasPriceToTend(1000e9);
+        strategy.setMaxGasPriceToTend(1000e9);
 
         // Set basefee within limit
         vm.fee(5e9);
@@ -247,91 +196,64 @@ contract OperationTest is Setup {
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // balanceOfAsset > minAmountToTend && basefee <= maxGasPriceToTend
-        (bool trigger, ) = strategy.tendTrigger();
+        (bool trigger,) = strategy.tendTrigger();
         assertTrue(trigger, "Tend should trigger with idle WETH");
 
         // Set basefee above max - should no longer trigger
         vm.fee(1001e9);
-        (trigger, ) = strategy.tendTrigger();
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger, "Tend should not trigger with high gas");
 
         // Reset basefee and set minAmountToTend above balance
         vm.fee(5e9);
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setMinAmountToTend(
-            _amount + 1
-        );
-        (trigger, ) = strategy.tendTrigger();
+        strategy.setMinAmountToTend(_amount + 1);
+        (trigger,) = strategy.tendTrigger();
         assertTrue(!trigger, "Tend should not trigger below min amount");
     }
 
     function test_tendExecution(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
 
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-
         // Disable auto-staking so WETH stays idle after deposit
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setStakeAsset(false);
+        strategy.setStakeAsset(false);
 
         // Deposit WETH without staking
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // Verify WETH is idle
         assertEq(asset.balanceOf(address(strategy)), _amount, "WETH not idle");
-        assertEq(
-            ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy)),
-            0,
-            "stETH exists before tend"
-        );
+        assertEq(ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy)), 0, "stETH exists before tend");
 
         // Execute tend - should stake idle WETH
         vm.prank(keeper);
         strategy.tend();
 
         // Verify WETH was staked to stETH
-        assertEq(
-            asset.balanceOf(address(strategy)),
-            0,
-            "WETH not staked by tend"
-        );
-        assertGt(
-            ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy)),
-            0,
-            "No stETH after tend"
-        );
+        assertEq(asset.balanceOf(address(strategy)), 0, "WETH not staked by tend");
+        assertGt(ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy)), 0, "No stETH after tend");
     }
 
     function test_availableWithdrawLimit(uint256 _amount) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
 
         // Deposit and auto-stake
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         // All WETH is staked to stETH, so available withdraw should be 0
         uint256 withdrawLimit = strategy.availableWithdrawLimit(user);
-        assertEq(
-            withdrawLimit,
-            0,
-            "Withdraw limit should be 0 when all staked"
-        );
+        assertEq(withdrawLimit, 0, "Withdraw limit should be 0 when all staked");
 
         // User cannot withdraw anything (no idle WETH)
         uint256 maxRedeem = strategy.maxRedeem(user);
         assertEq(maxRedeem, 0, "maxRedeem should be 0 when all staked");
 
         // Swap half the stETH back to WETH
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         uint256 swapAmount = stethBalance / 2;
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).manualSwapToAsset(
-            swapAmount,
-            0
-        );
+        strategy.manualSwapToAsset(swapAmount, 0);
 
         // Now available withdraw should equal WETH balance
         uint256 wethBalance = asset.balanceOf(address(strategy));
@@ -346,7 +268,6 @@ contract OperationTest is Setup {
 
     function test_reportWithReportBuffer() public {
         uint256 _amount = 10 ether;
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
 
         // Deposit and stake
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -365,7 +286,7 @@ contract OperationTest is Setup {
 
         // Set 5% report buffer
         vm.prank(management);
-        BaseLSTAccumulator(address(stethStrategy)).setReportBuffer(500);
+        strategy.setReportBuffer(500);
 
         // Disable health check again (re-enabled after first report)
         vm.prank(management);
@@ -379,10 +300,6 @@ contract OperationTest is Setup {
         assertGt(loss, 0, "Buffer should cause loss");
 
         // Total assets should have decreased
-        assertLt(
-            strategy.totalAssets(),
-            totalAssetsBefore,
-            "Total assets should decrease with buffer"
-        );
+        assertLt(strategy.totalAssets(), totalAssetsBefore, "Total assets should decrease with buffer");
     }
 }

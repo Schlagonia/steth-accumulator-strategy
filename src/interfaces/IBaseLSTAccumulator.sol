@@ -37,11 +37,7 @@ interface IBaseLSTAccumulator is IBaseHealthCheck {
     // Manual operations
     function manualSwapToAsset(uint256 _amount, uint256 _minOut) external;
     function manualStake(uint256 _amount) external;
-    function initiateLSTWithdrawal(
-        uint256 _amount
-    ) external returns (bytes memory returnData);
-    function claimLSTWithdrawal(
-        bytes memory _claimData
-    ) external returns (uint256);
+    function initiateLSTWithdrawal(uint256 _amount) external returns (bytes memory returnData);
+    function claimLSTWithdrawal(bytes memory _claimData) external returns (uint256);
     function clearPendingRedemptions(uint256 _amount) external;
 }

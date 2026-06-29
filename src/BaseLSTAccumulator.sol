@@ -45,11 +45,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
 
     mapping(address => bool) public allowed; // Addresses allowed to deposit when not open
 
-    constructor(
-        address _asset,
-        string memory _name,
-        address _lst
-    ) BaseHealthCheck(_asset, _name) {
+    constructor(address _asset, string memory _name, address _lst) BaseHealthCheck(_asset, _name) {
         LST = _lst;
 
         stakeAsset = true;
@@ -84,16 +80,12 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     /// @dev Should revert if the withdrawal request is not successful
     /// @param _amount Amount of LST to queue for withdrawal
     /// @return returnData Return data from the withdrawal request
-    function _initiateLSTWithdrawal(
-        uint256 _amount
-    ) internal virtual returns (bytes memory returnData);
+    function _initiateLSTWithdrawal(uint256 _amount) internal virtual returns (bytes memory returnData);
 
     /// @notice Claim ETH from completed Lido withdrawal request
     /// @param _claimData The claim data from the withdrawal request
     /// @return _redeemedAmount Amount of LST claimed
-    function _claimLSTWithdrawal(
-        bytes memory _claimData
-    ) internal virtual returns (uint256 _redeemedAmount);
+    function _claimLSTWithdrawal(bytes memory _claimData) internal virtual returns (uint256 _redeemedAmount);
 
     /// @notice Claim and sell rewards
     function _claimAndSellRewards() internal virtual {}
@@ -120,14 +112,18 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         }
     }
 
-    function _freeFunds(uint256 /*_amount*/) internal virtual override {
+    function _freeFunds(
+        uint256 /*_amount*/
+    )
+        internal
+        virtual
+        override
+    {
         // Do nothing - no automatic unstaking
         // Management must manually swap LST to asset if needed
     }
 
-    function availableDepositLimit(
-        address _owner
-    ) public view virtual override returns (uint256) {
+    function availableDepositLimit(address _owner) public view virtual override returns (uint256) {
         if (openDeposits || allowed[_owner]) {
             return _depositLimit();
         }
@@ -136,25 +132,24 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
 
     function availableWithdrawLimit(
         address /*_owner*/
-    ) public view virtual override returns (uint256) {
+    )
+        public
+        view
+        virtual
+        override
+        returns (uint256)
+    {
         // Only allow liquid withdrawals (available asset)
         return balanceOfAsset();
     }
 
-    function _harvestAndReport()
-        internal
-        virtual
-        override
-        returns (uint256 _totalAssets)
-    {
+    function _harvestAndReport() internal virtual override returns (uint256 _totalAssets) {
         require(pendingRedemptions == 0, "Pending redemptions");
 
         _claimAndSellRewards();
 
         // Stake any loose asset
-        _stake(
-            Math.min(balanceOfAsset(), availableDepositLimit(address(this)))
-        );
+        _stake(Math.min(balanceOfAsset(), availableDepositLimit(address(this))));
 
         // Simple accounting: Asset + LST (assuming LST rebases or maintains peg)
         _totalAssets = estimatedTotalAssets();
@@ -172,9 +167,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     }
 
     function _tendTrigger() internal view virtual override returns (bool) {
-        return
-            balanceOfAsset() > minAmountToTend &&
-            block.basefee <= maxGasPriceToTend;
+        return balanceOfAsset() > minAmountToTend && block.basefee <= maxGasPriceToTend;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -182,9 +175,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     //////////////////////////////////////////////////////////////*/
 
     function estimatedTotalAssets() public view virtual returns (uint256) {
-        return
-            balanceOfAsset() +
-            ((valueOfLST() * (MAX_BPS - reportBuffer)) / MAX_BPS);
+        return balanceOfAsset() + ((valueOfLST() * (MAX_BPS - reportBuffer)) / MAX_BPS);
     }
 
     function balanceOfAsset() internal view virtual returns (uint256) {
@@ -204,9 +195,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
                 MANAGEMENT FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function setReportBuffer(
-        uint256 _reportBuffer
-    ) external virtual onlyManagement {
+    function setReportBuffer(uint256 _reportBuffer) external virtual onlyManagement {
         reportBuffer = _reportBuffer;
         emit ReportBufferUpdated(_reportBuffer);
     }
@@ -224,45 +213,33 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     }
 
     /// @notice Set whether the strategy is open for deposits
-    function setOpenDeposits(
-        bool _openDeposits
-    ) external virtual onlyEmergencyAuthorized {
+    function setOpenDeposits(bool _openDeposits) external virtual onlyManagement {
         openDeposits = _openDeposits;
         emit OpenDepositsUpdated(_openDeposits);
     }
 
     /// @notice Set or update an address's whitelist status
-    function setAllowed(
-        address _address,
-        bool _allowed
-    ) external virtual onlyEmergencyAuthorized {
+    function setAllowed(address _address, bool _allowed) external virtual onlyManagement {
         allowed[_address] = _allowed;
         emit AllowedUpdated(_address, _allowed);
     }
 
     /// @notice Set the minimum amount of asset to tend
-    function setMinAmountToTend(
-        uint256 _minAmountToTend
-    ) external virtual onlyManagement {
+    function setMinAmountToTend(uint256 _minAmountToTend) external virtual onlyManagement {
         minAmountToTend = _minAmountToTend;
         emit MinAmountToTendUpdated(_minAmountToTend);
     }
 
     /// @notice Set the maximum gas price to tend
-    function setMaxGasPriceToTend(
-        uint256 _maxGasPriceToTend
-    ) external virtual onlyManagement {
+    function setMaxGasPriceToTend(uint256 _maxGasPriceToTend) external virtual onlyManagement {
         maxGasPriceToTend = _maxGasPriceToTend;
         emit MaxGasPriceToTendUpdated(_maxGasPriceToTend);
     }
 
     /// @notice Manually swap LST to asset
     /// @param _amount Amount of LST to swap
-    function manualSwapToAsset(
-        uint256 _amount,
-        uint256 _minOut
-    ) external virtual onlyManagement {
-        _amount = Math.min(_amount, balanceOfLST());
+    function manualSwapToAsset(uint256 _amount, uint256 _minOut) external virtual onlyManagement {
+        _amount = Math.min(_amount, valueOfLST());
         require(_amount > 0, "!amount");
 
         _swapLSTToAsset(_amount, _minOut);
@@ -279,10 +256,8 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     /// @notice Initiate stETH withdrawal through Lido queue for 1:1 redemption
     /// @param _amount Amount of LST to queue for withdrawal
     /// @return returnData Return data from the withdrawal request
-    function initiateLSTWithdrawal(
-        uint256 _amount
-    ) external virtual onlyManagement returns (bytes memory returnData) {
-        _amount = Math.min(_amount, balanceOfLST());
+    function initiateLSTWithdrawal(uint256 _amount) external virtual onlyManagement returns (bytes memory returnData) {
+        _amount = Math.min(_amount, valueOfLST());
         require(_amount > 0, "!amount");
         pendingRedemptions += _amount;
         return _initiateLSTWithdrawal(_amount);
@@ -291,13 +266,9 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     /// @notice Claim ETH from completed Lido withdrawal request
     /// @param _claimData The claim data from the withdrawal request
     /// @return _amount Amount of LST claimed
-    function claimLSTWithdrawal(
-        bytes memory _claimData
-    ) external virtual onlyManagement returns (uint256) {
+    function claimLSTWithdrawal(bytes memory _claimData) external virtual onlyKeepers returns (uint256) {
         uint256 _redeemedAmount = _claimLSTWithdrawal(_claimData);
-        pendingRedemptions = _redeemedAmount >= pendingRedemptions
-            ? 0
-            : pendingRedemptions - _redeemedAmount;
+        pendingRedemptions = _redeemedAmount >= pendingRedemptions ? 0 : pendingRedemptions - _redeemedAmount;
         return _redeemedAmount;
     }
 
@@ -305,11 +276,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     /// @dev This should only be used in extreme scenarios when there are
     ///    issues with the redemtion process in order to "unstick" a strategy.
     ///    Using this will cause losses to potentially be realized during the next report
-    function clearPendingRedemptions(
-        uint256 _amount
-    ) external virtual onlyManagement {
-        pendingRedemptions = _amount >= pendingRedemptions
-            ? 0
-            : pendingRedemptions - _amount;
+    function clearPendingRedemptions(uint256 _amount) external virtual onlyManagement {
+        pendingRedemptions = _amount >= pendingRedemptions ? 0 : pendingRedemptions - _amount;
     }
 }

@@ -25,10 +25,7 @@ contract StrategyAprOracle is AprOracleBase {
      * @param _delta The difference in debt.
      * @return . The expected apr for the strategy represented as 1e18.
      */
-    function aprAfterDebtChange(
-        address _strategy,
-        int256 _delta
-    ) external view override returns (uint256) {
+    function aprAfterDebtChange(address _strategy, int256 _delta) external view override returns (uint256) {
         // Return a simple estimation for stETH APR
         // stETH typically yields around 3-5% APR
         // We'll return 4% as base APR (4e16)

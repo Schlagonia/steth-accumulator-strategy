@@ -20,9 +20,7 @@ contract Deploy is Script {
 
         vm.startBroadcast();
 
-        IStrategyInterface strategy = IStrategyInterface(
-            address(new Strategy(WETH, name))
-        );
+        IStrategyInterface strategy = IStrategyInterface(address(new Strategy(WETH, name)));
 
         strategy.setPendingManagement(management);
         strategy.setKeeper(keeper);

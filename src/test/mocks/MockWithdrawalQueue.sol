@@ -7,10 +7,10 @@ contract MockWithdrawalQueue {
     mapping(uint256 => uint256) public withdrawalAmounts;
     uint256 public nextRequestId = 1;
 
-    function requestWithdrawals(
-        uint256[] calldata _amounts,
-        address _owner
-    ) external returns (uint256[] memory requestIds) {
+    function requestWithdrawals(uint256[] calldata _amounts, address _owner)
+        external
+        returns (uint256[] memory requestIds)
+    {
         requestIds = new uint256[](_amounts.length);
         for (uint256 i = 0; i < _amounts.length; i++) {
             uint256 requestId = nextRequestId++;
@@ -18,11 +18,7 @@ contract MockWithdrawalQueue {
             requestIds[i] = requestId;
 
             // Transfer stETH from caller
-            ERC20(0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84).transferFrom(
-                msg.sender,
-                address(this),
-                _amounts[i]
-            );
+            ERC20(0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84).transferFrom(msg.sender, address(this), _amounts[i]);
         }
     }
 
@@ -32,20 +28,17 @@ contract MockWithdrawalQueue {
 
         // Send ETH to caller
         withdrawalAmounts[_requestId] = 0;
-        (bool success, ) = msg.sender.call{value: amount}("");
+        (bool success,) = msg.sender.call{value: amount}("");
         require(success, "ETH transfer failed");
     }
 
-    function claimWithdrawals(
-        uint256[] calldata _requestIds,
-        uint256[] calldata _hints
-    ) external {
+    function claimWithdrawals(uint256[] calldata _requestIds, uint256[] calldata _hints) external {
         for (uint256 i = 0; i < _requestIds.length; i++) {
             uint256 amount = withdrawalAmounts[_requestIds[i]];
             require(amount > 0, "Invalid request");
 
             withdrawalAmounts[_requestIds[i]] = 0;
-            (bool success, ) = msg.sender.call{value: amount}("");
+            (bool success,) = msg.sender.call{value: amount}("");
             require(success, "ETH transfer failed");
         }
     }

@@ -6,7 +6,6 @@ import {Test} from "forge-std/Test.sol";
 
 import {Strategy, ERC20} from "../../Strategy.sol";
 import {IStrategyInterface} from "../../interfaces/IStrategyInterface.sol";
-import {BaseLSTAccumulator} from "../../BaseLSTAccumulator.sol";
 
 // Inherit the events so they can be checked if desired.
 import {IEvents} from "@tokenized-strategy/interfaces/IEvents.sol";
@@ -72,30 +71,22 @@ contract Setup is Test, IEvents {
 
     function setUpStrategy() public virtual returns (address) {
         // we save the strategy as a IStrategyInterface to give it the needed interface
-        IStrategyInterface _strategy = IStrategyInterface(
-            address(new Strategy(address(asset), "Tokenized Strategy"))
-        );
+        IStrategyInterface _strategy = IStrategyInterface(address(new Strategy(address(asset), "Tokenized Strategy")));
 
         _strategy.setPendingManagement(management);
         _strategy.setKeeper(keeper);
         _strategy.setEmergencyAdmin(emergencyAdmin);
         _strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
+        _strategy.setLossLimitRatio(1);
+        _strategy.setOpenDeposits(true);
 
         vm.prank(management);
         _strategy.acceptManagement();
 
-        // Open deposits for testing
-        vm.prank(emergencyAdmin);
-        BaseLSTAccumulator(address(_strategy)).setOpenDeposits(true);
-
         return address(_strategy);
     }
 
-    function depositIntoStrategy(
-        IStrategyInterface _strategy,
-        address _user,
-        uint256 _amount
-    ) public {
+    function depositIntoStrategy(IStrategyInterface _strategy, address _user, uint256 _amount) public {
         vm.prank(_user);
         asset.approve(address(_strategy), _amount);
 
@@ -103,11 +94,7 @@ contract Setup is Test, IEvents {
         _strategy.deposit(_amount, _user);
     }
 
-    function mintAndDepositIntoStrategy(
-        IStrategyInterface _strategy,
-        address _user,
-        uint256 _amount
-    ) public {
+    function mintAndDepositIntoStrategy(IStrategyInterface _strategy, address _user, uint256 _amount) public {
         airdrop(asset, _user, _amount);
         depositIntoStrategy(_strategy, _user, _amount);
     }
@@ -120,9 +107,7 @@ contract Setup is Test, IEvents {
         uint256 _totalIdle
     ) public {
         uint256 _assets = _strategy.totalAssets();
-        uint256 _balance = ERC20(_strategy.asset()).balanceOf(
-            address(_strategy)
-        );
+        uint256 _balance = ERC20(_strategy.asset()).balanceOf(address(_strategy));
         uint256 _idle = _balance > _assets ? _assets : _balance;
         uint256 _debt = _assets - _idle;
         assertEq(_assets, _totalAssets, "!totalAssets");

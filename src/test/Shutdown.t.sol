@@ -1,9 +1,7 @@
 pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
-import {Setup, ERC20, IStrategyInterface} from "./utils/Setup.sol";
-import {BaseLSTAccumulator} from "../BaseLSTAccumulator.sol";
-import {Strategy} from "../Strategy.sol";
+import {Setup, ERC20} from "./utils/Setup.sol";
 
 contract ShutdownTest is Setup {
     function setUp() public virtual override {
@@ -47,11 +45,7 @@ contract ShutdownTest is Setup {
 
         // Allow for 0.5% slippage from stETH->WETH conversion
         uint256 minExpected = (_amount * 995) / 1000;
-        assertGe(
-            asset.balanceOf(user),
-            balanceBefore + minExpected,
-            "!final balance"
-        );
+        assertGe(asset.balanceOf(user), balanceBefore + minExpected, "!final balance");
     }
 
     function test_emergencyWithdraw_maxUint(uint256 _amount) public {
@@ -69,10 +63,7 @@ contract ShutdownTest is Setup {
         assertApproxEqAbs(strategy.totalAssets(), _amount, 2, "!totalAssets");
 
         // Check that funds are in stETH
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBalance, 0, "No stETH balance after deposit");
 
         // Earn Interest
@@ -90,9 +81,7 @@ contract ShutdownTest is Setup {
         strategy.emergencyWithdraw(type(uint256).max);
 
         // Check that stETH was swapped back (allow for dust)
-        uint256 stethBalanceAfter = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBalanceAfter = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertLe(stethBalanceAfter, 2, "stETH not fully swapped");
 
         // Make sure we can still withdraw the full amount
@@ -105,11 +94,7 @@ contract ShutdownTest is Setup {
 
         // Allow for 0.5% slippage from stETH->WETH conversion
         uint256 minExpected = (_amount * 995) / 1000;
-        assertGe(
-            asset.balanceOf(user),
-            balanceBefore + minExpected,
-            "!final balance"
-        );
+        assertGe(asset.balanceOf(user), balanceBefore + minExpected, "!final balance");
     }
 
     function test_emergencyWithdraw_withStETH(uint256 _amount) public {
@@ -130,10 +115,7 @@ contract ShutdownTest is Setup {
         strategy.report();
 
         // Verify stETH position exists
-        Strategy stethStrategy = Strategy(payable(address(strategy)));
-        uint256 stethBefore = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethBefore = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBefore, 0, "No stETH balance");
 
         // Shutdown and emergency withdraw
@@ -144,9 +126,7 @@ contract ShutdownTest is Setup {
         strategy.emergencyWithdraw(_amount / 2); // Withdraw half
 
         // Check that some stETH was swapped (allow for rounding)
-        uint256 stethAfter = ERC20(tokenAddrs["STETH"]).balanceOf(
-            address(strategy)
-        );
+        uint256 stethAfter = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertLe(stethAfter, stethBefore, "stETH not reduced");
     }
 
