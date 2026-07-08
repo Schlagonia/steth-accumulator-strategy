@@ -33,7 +33,7 @@ contract Setup4626 is Setup {
         _strategy.setEmergencyAdmin(emergencyAdmin);
         _strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
         _strategy.setLossLimitRatio(1);
-        _strategy.setOpenDeposits(true);
+        _strategy.setOpen(true);
 
         vm.prank(management);
         _strategy.acceptManagement();

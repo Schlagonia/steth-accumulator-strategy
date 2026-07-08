@@ -4,8 +4,15 @@ import "forge-std/console2.sol";
 import {Setup, ERC20} from "./utils/Setup.sol";
 
 contract ShutdownTest is Setup {
+    uint256 internal constant EMERGENCY_SWAP_BUFFER = 50; // 50 bps
+
     function setUp() public virtual override {
         super.setUp();
+    }
+
+    function _setEmergencySwapBuffer() internal {
+        vm.prank(management);
+        strategy.setReportBuffer(EMERGENCY_SWAP_BUFFER);
     }
 
     function test_shutdownCanWithdraw(uint256 _amount) public {
@@ -30,6 +37,8 @@ contract ShutdownTest is Setup {
         strategy.shutdownStrategy();
 
         assertApproxEqAbs(strategy.totalAssets(), _amount, 2, "!totalAssets");
+
+        _setEmergencySwapBuffer();
 
         // Emergency withdraw to convert stETH back to WETH
         vm.prank(emergencyAdmin);
@@ -74,6 +83,8 @@ contract ShutdownTest is Setup {
         strategy.shutdownStrategy();
 
         assertApproxEqAbs(strategy.totalAssets(), _amount, 2, "!totalAssets");
+
+        _setEmergencySwapBuffer();
 
         // should be able to pass uint 256 max and not revert.
         // This will swap all stETH back to WETH
@@ -121,6 +132,8 @@ contract ShutdownTest is Setup {
         // Shutdown and emergency withdraw
         vm.prank(emergencyAdmin);
         strategy.shutdownStrategy();
+
+        _setEmergencySwapBuffer();
 
         vm.prank(emergencyAdmin);
         strategy.emergencyWithdraw(_amount / 2); // Withdraw half

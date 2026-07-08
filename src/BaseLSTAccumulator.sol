@@ -14,8 +14,6 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
 
     // Events
     event StakeAssetUpdated(bool indexed stakeAsset);
-    event OpenDepositsUpdated(bool indexed openDeposits);
-    event AllowedUpdated(address indexed user, bool indexed allowed);
     event DepositLimitUpdated(uint256 indexed depositLimit);
     event ReportBufferUpdated(uint256 indexed reportBuffer);
     event MinAmountToTendUpdated(uint256 indexed minAmountToTend);
@@ -39,11 +37,6 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     uint256 public maxGasPriceToTend;
 
     uint256 public pendingRedemptions;
-
-    // Access control
-    bool public openDeposits; // If the strategy is open for any depositors
-
-    mapping(address => bool) public allowed; // Addresses allowed to deposit when not open
 
     constructor(address _asset, string memory _name, address _lst) BaseHealthCheck(_asset, _name) {
         LST = _lst;
@@ -124,10 +117,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     }
 
     function availableDepositLimit(address _owner) public view virtual override returns (uint256) {
-        if (openDeposits || allowed[_owner]) {
-            return _depositLimit();
-        }
-        return 0;
+        return Math.min(super.availableDepositLimit(_owner), _depositLimit());
     }
 
     function availableWithdrawLimit(
@@ -159,7 +149,10 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
         uint256 lstBalance = balanceOfLST();
         if (lstBalance == 0) return;
 
-        _swapLSTToAsset(Math.min(_amount, lstBalance), 0);
+        _amount = Math.min(_amount, lstBalance);
+        uint256 _amountOut = (_amount * (MAX_BPS - reportBuffer)) / MAX_BPS;
+
+        _swapLSTToAsset(_amount, _amountOut);
     }
 
     function _tend(uint256 _totalIdle) internal virtual override {
@@ -167,7 +160,8 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     }
 
     function _tendTrigger() internal view virtual override returns (bool) {
-        return balanceOfAsset() > minAmountToTend && block.basefee <= maxGasPriceToTend;
+        uint256 toDeploy = Math.min(balanceOfAsset(), _depositLimit());
+        return toDeploy > minAmountToTend && block.basefee <= maxGasPriceToTend;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -196,6 +190,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     //////////////////////////////////////////////////////////////*/
 
     function setReportBuffer(uint256 _reportBuffer) external virtual onlyManagement {
+        require(_reportBuffer <= MAX_BPS, "Invalid report buffer");
         reportBuffer = _reportBuffer;
         emit ReportBufferUpdated(_reportBuffer);
     }
@@ -210,18 +205,6 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     function setDepositLimit(uint256 _limit) external virtual onlyManagement {
         depositLimit = _limit;
         emit DepositLimitUpdated(_limit);
-    }
-
-    /// @notice Set whether the strategy is open for deposits
-    function setOpenDeposits(bool _openDeposits) external virtual onlyManagement {
-        openDeposits = _openDeposits;
-        emit OpenDepositsUpdated(_openDeposits);
-    }
-
-    /// @notice Set or update an address's whitelist status
-    function setAllowed(address _address, bool _allowed) external virtual onlyManagement {
-        allowed[_address] = _allowed;
-        emit AllowedUpdated(_address, _allowed);
     }
 
     /// @notice Set the minimum amount of asset to tend

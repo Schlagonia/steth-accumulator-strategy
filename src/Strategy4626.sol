@@ -52,14 +52,16 @@ contract Strategy4626 is Strategy {
         return super._initiateLSTWithdrawal(_amount);
     }
 
-    function availableDepositLimit(address _owner) public view virtual override returns (uint256) {
-        uint256 superLimit = super.availableDepositLimit(_owner);
-        if (superLimit == 0) return 0;
+    function _depositLimit() internal view virtual override returns (uint256) {
+        uint256 vaultLimit = vault.maxDeposit(address(this));
+        if (vaultLimit == type(uint256).max) return super._depositLimit();
 
-        uint256 maxDeposit = vault.maxDeposit(address(this));
-        if (maxDeposit == type(uint256).max) return superLimit;
+        return Math.min(super._depositLimit(), _stETHValue(vaultLimit));
+    }
 
-        return Math.min(superLimit, _stETHValue(maxDeposit));
+    function _emergencyWithdraw(uint256 _amount) internal virtual override {
+        _freeStETH(Math.min(_amount, valueOfWstETH()));
+        super._emergencyWithdraw(_amount);
     }
 
     function balanceOfWstETH() public view virtual returns (uint256) {

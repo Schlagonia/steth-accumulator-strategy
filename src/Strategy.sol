@@ -15,6 +15,8 @@ import {ISTETH} from "./interfaces/ISTETH.sol";
 contract Strategy is BaseLSTAccumulator {
     using SafeERC20 for ERC20;
 
+    event ReferralUpdated(address indexed referral);
+
     // stETH specific constants
     address internal constant WITHDRAWAL_QUEUE = 0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1; // stETH withdrawal queue
 
@@ -28,10 +30,7 @@ contract Strategy is BaseLSTAccumulator {
 
     constructor(address _asset, string memory _name)
         BaseLSTAccumulator(_asset, _name, 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84)
-    {
-        // Approve Curve pool for asset (WETH)
-        asset.forceApprove(CURVE_POOL, type(uint256).max);
-    }
+    {}
 
     receive() external payable {}
 
@@ -127,5 +126,6 @@ contract Strategy is BaseLSTAccumulator {
 
     function setReferral(address _referral) external virtual onlyManagement {
         referral = _referral;
+        emit ReferralUpdated(_referral);
     }
 }

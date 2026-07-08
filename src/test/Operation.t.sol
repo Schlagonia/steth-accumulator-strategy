@@ -20,7 +20,7 @@ contract OperationTest is Setup {
         // Check stETH specific params
         assertEq(strategy.LST(), tokenAddrs["STETH"]);
         assertEq(strategy.stakeAsset(), true);
-        assertEq(strategy.openDeposits(), true); // Opened in setup
+        assertEq(strategy.open(), true); // Opened in setup
     }
 
     function test_operation(uint256 _amount) public {

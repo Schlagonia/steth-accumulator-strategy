@@ -100,7 +100,7 @@ contract StethSpecificTest is Setup {
     function test_availableDepositLimit_whenStakingPaused() public {
         // First enable open deposits
         vm.prank(management);
-        strategy.setOpenDeposits(true);
+        strategy.setOpen(true);
 
         // Check deposit limit is available normally
         uint256 limitBefore = strategy.availableDepositLimit(user);
@@ -125,11 +125,11 @@ contract StethSpecificTest is Setup {
         uint256 _amount = 10 ether;
 
         // Deposits are open by default in test setup
-        assertEq(strategy.openDeposits(), true);
+        assertEq(strategy.open(), true);
 
         // Close deposits
         vm.prank(management);
-        strategy.setOpenDeposits(false);
+        strategy.setOpen(false);
 
         // User cannot deposit when closed
         airdrop(asset, user, _amount);
@@ -151,7 +151,7 @@ contract StethSpecificTest is Setup {
 
         // Open deposits for everyone again
         vm.prank(management);
-        strategy.setOpenDeposits(true);
+        strategy.setOpen(true);
 
         // Another user can now deposit
         address user2 = address(0x123);
@@ -209,7 +209,7 @@ contract StethSpecificTest is Setup {
 
         // Open deposits
         vm.prank(management);
-        strategy.setOpenDeposits(true);
+        strategy.setOpen(true);
 
         // Check available limit
         uint256 available = strategy.availableDepositLimit(user);

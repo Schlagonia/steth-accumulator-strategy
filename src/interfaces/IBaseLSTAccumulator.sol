@@ -6,8 +6,6 @@ import {IBaseHealthCheck} from "@periphery/Bases/HealthCheck/IBaseHealthCheck.so
 interface IBaseLSTAccumulator is IBaseHealthCheck {
     // Events
     event StakeAssetUpdated(bool indexed stakeAsset);
-    event OpenDepositsUpdated(bool indexed openDeposits);
-    event AllowedUpdated(address indexed user, bool indexed allowed);
     event DepositLimitUpdated(uint256 indexed depositLimit);
     event ReportBufferUpdated(uint256 indexed reportBuffer);
     event MinAmountToTendUpdated(uint256 indexed minAmountToTend);
@@ -21,8 +19,6 @@ interface IBaseLSTAccumulator is IBaseHealthCheck {
     function reportBuffer() external view returns (uint256);
     function minAmountToTend() external view returns (uint256);
     function maxGasPriceToTend() external view returns (uint256);
-    function openDeposits() external view returns (bool);
-    function allowed(address) external view returns (bool);
     function pendingRedemptions() external view returns (uint256);
 
     // Management functions
@@ -31,8 +27,6 @@ interface IBaseLSTAccumulator is IBaseHealthCheck {
     function setReportBuffer(uint256 _reportBuffer) external;
     function setMinAmountToTend(uint256 _minAmountToTend) external;
     function setMaxGasPriceToTend(uint256 _maxGasPriceToTend) external;
-    function setOpenDeposits(bool _openDeposits) external;
-    function setAllowed(address _address, bool _allowed) external;
 
     // Manual operations
     function manualSwapToAsset(uint256 _amount, uint256 _minOut) external;
