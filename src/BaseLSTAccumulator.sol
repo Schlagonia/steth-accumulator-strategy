@@ -169,7 +169,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     //////////////////////////////////////////////////////////////*/
 
     function estimatedTotalAssets() public view virtual returns (uint256) {
-        return balanceOfAsset() + (((valueOfLST() + pendingRedemptions)* (MAX_BPS - reportBuffer)) / MAX_BPS);
+        return balanceOfAsset() + (((valueOfLST() + pendingRedemptions) * (MAX_BPS - reportBuffer)) / MAX_BPS);
     }
 
     function balanceOfAsset() internal view virtual returns (uint256) {
