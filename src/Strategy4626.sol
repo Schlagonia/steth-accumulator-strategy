@@ -60,7 +60,7 @@ contract Strategy4626 is Strategy {
     }
 
     function _emergencyWithdraw(uint256 _amount) internal virtual override {
-        _freeStETH(Math.min(_amount, valueOfWstETH()));
+        _freeStETH(Math.min(_amount, valueOfLST()));
         super._emergencyWithdraw(_amount);
     }
 
@@ -94,7 +94,9 @@ contract Strategy4626 is Strategy {
             }
         }
 
-        wstETH.unwrap(wrappedBalance);
+        if (wrappedBalance > 0) {
+            wstETH.unwrap(wrappedBalance);
+        }
     }
 
     function _stETHValue(uint256 _amount) internal view returns (uint256) {

@@ -169,7 +169,7 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     //////////////////////////////////////////////////////////////*/
 
     function estimatedTotalAssets() public view virtual returns (uint256) {
-        return balanceOfAsset() + ((valueOfLST() * (MAX_BPS - reportBuffer)) / MAX_BPS);
+        return balanceOfAsset() + (((valueOfLST() + pendingRedemptions)* (MAX_BPS - reportBuffer)) / MAX_BPS);
     }
 
     function balanceOfAsset() internal view virtual returns (uint256) {
@@ -220,10 +220,12 @@ abstract contract BaseLSTAccumulator is BaseHealthCheck {
     }
 
     /// @notice Manually swap LST to asset
+    /// @dev Any losses realized during the swap will need a "report" to be realized.
     /// @param _amount Amount of LST to swap
     function manualSwapToAsset(uint256 _amount, uint256 _minOut) external virtual onlyManagement {
         _amount = Math.min(_amount, valueOfLST());
         require(_amount > 0, "!amount");
+        require(_minOut > 0, "!minOut");
 
         _swapLSTToAsset(_amount, _minOut);
     }

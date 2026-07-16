@@ -85,6 +85,7 @@ contract Strategy is BaseLSTAccumulator {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Initiate stETH withdrawal through Lido queue for 1:1 redemption
+    /// @dev Must be under the Lido max limit of 1,000
     /// @param _amount Amount of LST to queue for withdrawal
     /// @return returnData Return data from the withdrawal request
     function _initiateLSTWithdrawal(uint256 _amount) internal virtual override returns (bytes memory returnData) {
@@ -95,7 +96,7 @@ contract Strategy is BaseLSTAccumulator {
 
         uint256[] memory requestIds = IQueue(WITHDRAWAL_QUEUE).requestWithdrawals(_amounts, address(this));
 
-        return abi.encode(requestIds);
+        return abi.encode(requestIds[0]);
     }
 
     /// @notice Claim ETH from completed Lido withdrawal request

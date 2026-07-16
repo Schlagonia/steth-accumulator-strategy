@@ -46,10 +46,87 @@ contract Strategy4626Test is Setup4626 {
         uint256 sharesBefore = vault4626.balanceOf(address(strategy4626));
 
         vm.prank(management);
-        strategy4626.manualSwapToAsset(_amount, 0);
+        strategy4626.manualSwapToAsset(_amount, 1);
 
         assertLt(vault4626.balanceOf(address(strategy4626)), sharesBefore, "Vault not redeemed");
         assertGt(asset.balanceOf(address(strategy4626)), 0, "No loose WETH");
+    }
+
+    function test_manualRedeemAndUnwrap() public {
+        uint256 _amount = 10 ether;
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        uint256 sharesBefore = vault4626.balanceOf(address(strategy4626));
+        assertGt(sharesBefore, 0, "No vault shares");
+
+        vm.prank(emergencyAdmin);
+        strategy4626.manualRedeem(type(uint256).max);
+
+        assertEq(vault4626.balanceOf(address(strategy4626)), 0, "Vault shares remain");
+
+        uint256 wrappedBalance = strategy4626.balanceOfWstETH();
+        assertGt(wrappedBalance, 0, "No wstETH redeemed");
+
+        vm.prank(emergencyAdmin);
+        strategy4626.manualUnwrap(type(uint256).max);
+
+        assertEq(strategy4626.balanceOfWstETH(), 0, "wstETH remains");
+        assertGt(ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy4626)), 0, "No stETH unwrapped");
+
+        // Empty balances are clean no-ops.
+        vm.prank(emergencyAdmin);
+        strategy4626.manualRedeem(1);
+        vm.prank(emergencyAdmin);
+        strategy4626.manualUnwrap(1);
+    }
+
+    function test_manualRedeemAndUnwrap_accessControl() public {
+        vm.prank(user);
+        vm.expectRevert("!emergency authorized");
+        strategy4626.manualRedeem(1);
+
+        vm.prank(user);
+        vm.expectRevert("!emergency authorized");
+        strategy4626.manualUnwrap(1);
+    }
+
+    function test_emergencyWithdrawFreesMixedLSTPosition() public {
+        uint256 _amount = 10 ether;
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        uint256 shares = vault4626.balanceOf(address(strategy4626));
+        vm.prank(emergencyAdmin);
+        strategy4626.manualRedeem(shares / 2);
+
+        vm.prank(emergencyAdmin);
+        strategy4626.manualUnwrap(type(uint256).max);
+
+        uint256 looseSteth = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy4626));
+        uint256 vaultValue = strategy4626.valueOfWstETH();
+        uint256 toWithdraw = looseSteth + (vaultValue / 2);
+        uint256 sharesBeforeWithdraw = vault4626.balanceOf(address(strategy4626));
+
+        assertGt(looseSteth, 0, "No loose stETH");
+        assertGt(vaultValue, 0, "No vault position");
+        assertGt(toWithdraw, looseSteth, "Withdrawal does not need vault funds");
+
+        vm.prank(management);
+        strategy4626.setReportBuffer(50);
+        vm.prank(emergencyAdmin);
+        strategy4626.shutdownStrategy();
+
+        uint256 wethBefore = asset.balanceOf(address(strategy4626));
+        vm.prank(emergencyAdmin);
+        strategy4626.emergencyWithdraw(toWithdraw);
+
+        assertGe(
+            asset.balanceOf(address(strategy4626)) - wethBefore,
+            (toWithdraw * (MAX_BPS - 50)) / MAX_BPS,
+            "Wrong emergency withdrawal amount"
+        );
+        assertLt(vault4626.balanceOf(address(strategy4626)), sharesBeforeWithdraw, "Vault funds not freed");
     }
 
     function test_initiateWithdrawalRedeemsVault(uint256 _amount) public {
@@ -58,11 +135,15 @@ contract Strategy4626Test is Setup4626 {
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         uint256 sharesBefore = vault4626.balanceOf(address(strategy4626));
+        uint256 estimatedBefore = strategy4626.estimatedTotalAssets();
+        uint256 withdrawalAmount = _amount / 2;
 
         vm.prank(management);
-        strategy4626.initiateLSTWithdrawal(_amount / 2);
+        bytes memory returnData = strategy4626.initiateLSTWithdrawal(withdrawalAmount);
 
-        assertGt(strategy4626.pendingRedemptions(), 0, "No pending redemption");
+        assertGt(abi.decode(returnData, (uint256)), 0, "Invalid request ID");
+        assertEq(strategy4626.pendingRedemptions(), withdrawalAmount, "Wrong pending redemption");
+        assertApproxEqAbs(strategy4626.estimatedTotalAssets(), estimatedBefore, 10, "Pending redemption not valued");
         assertLt(vault4626.balanceOf(address(strategy4626)), sharesBefore, "Vault not redeemed");
     }
 }

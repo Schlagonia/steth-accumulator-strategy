@@ -192,13 +192,24 @@ contract StethSpecificTest is Setup {
 
         // Manually swap back
         vm.prank(management);
-        strategy.manualSwapToAsset(stethBalance, 0);
+        strategy.manualSwapToAsset(stethBalance, 1);
 
         wethBalance = asset.balanceOf(address(strategy));
         assertGt(wethBalance, 0, "No WETH received");
 
         stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertLe(stethBalance, 2, "stETH not swapped");
+    }
+
+    function test_manualSwapRequiresMinOut() public {
+        uint256 _amount = 10 ether;
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
+        vm.prank(management);
+        vm.expectRevert("!minOut");
+        strategy.manualSwapToAsset(stethBalance, 0);
     }
 
     function test_depositLimit() public {
@@ -258,7 +269,7 @@ contract StethSpecificTest is Setup {
 
         // Swap through Curve (manual swap)
         vm.prank(management);
-        strategy.manualSwapToAsset(stethBalance, 0);
+        strategy.manualSwapToAsset(stethBalance, 1);
 
         // Should have WETH back
         uint256 wethBalance = asset.balanceOf(address(strategy));

@@ -3,7 +3,6 @@ pragma solidity ^0.8.18;
 
 import "forge-std/console2.sol";
 import {Setup, ERC20} from "./utils/Setup.sol";
-import {IQueue} from "../interfaces/IQueue.sol";
 import {MockWithdrawalQueue} from "./mocks/MockWithdrawalQueue.sol";
 
 contract WithdrawalQueueTest is Setup {
@@ -44,17 +43,26 @@ contract WithdrawalQueueTest is Setup {
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         assertGt(stethBalance, 0, "No stETH to withdraw");
 
+        vm.prank(management);
+        strategy.setReportBuffer(100);
+
+        uint256 estimatedBefore = strategy.estimatedTotalAssets();
+        uint256 depositLimitBefore = strategy.availableDepositLimit(user);
+
         // Initiate withdrawal (will use real mock queue)
         vm.prank(management);
         bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
 
         // Decode request ID
-        uint256[] memory requestIds = abi.decode(returnData, (uint256[]));
-        assertEq(requestIds.length, 1, "Wrong number of request IDs");
-        assertGt(requestIds[0], 0, "Invalid request ID");
+        uint256 requestId = abi.decode(returnData, (uint256));
+        assertGt(requestId, 0, "Invalid request ID");
 
         // Check pending redemptions updated
         assertEq(strategy.pendingRedemptions(), stethBalance, "Pending redemptions not updated");
+        assertApproxEqAbs(strategy.estimatedTotalAssets(), estimatedBefore, 2, "Pending redemption not valued");
+        assertApproxEqAbs(
+            strategy.availableDepositLimit(user), depositLimitBefore, 2, "Withdrawal reopened deposit limit"
+        );
     }
 
     function test_claimLSTWithdrawal() public {
@@ -70,14 +78,17 @@ contract WithdrawalQueueTest is Setup {
         // Initiate withdrawal
         vm.prank(management);
         bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
-        uint256[] memory requestIds = abi.decode(returnData, (uint256[]));
+        uint256 requestId = abi.decode(returnData, (uint256));
+        assertGt(requestId, 0, "Invalid request ID");
+        uint256 estimatedBefore = strategy.estimatedTotalAssets();
+        uint256 ethBefore = address(strategy).balance;
 
         // Get WETH balance before
         uint256 wethBefore = asset.balanceOf(address(strategy));
 
         // Claim withdrawal (mock queue will send ETH)
-        vm.prank(management);
-        uint256 claimedAmount = strategy.claimLSTWithdrawal(abi.encode(requestIds[0]));
+        vm.prank(keeper);
+        uint256 claimedAmount = strategy.claimLSTWithdrawal(returnData);
 
         // Check the claimed amount matches
         assertApproxEqAbs(claimedAmount, stethBalance, 2, "Wrong claimed amount");
@@ -88,6 +99,13 @@ contract WithdrawalQueueTest is Setup {
 
         // Check pending redemptions cleared
         assertEq(strategy.pendingRedemptions(), 0, "Pending redemptions not cleared");
+        assertApproxEqAbs(
+            strategy.estimatedTotalAssets(), estimatedBefore + ethBefore, 2, "Claim changed estimated assets"
+        );
+
+        vm.prank(user);
+        vm.expectRevert("!keeper");
+        strategy.claimLSTWithdrawal(returnData);
     }
 
     function test_cannotHarvestWithPendingRedemptions() public {
@@ -101,10 +119,8 @@ contract WithdrawalQueueTest is Setup {
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
         // Initiate withdrawal
-        uint256[] memory requestIds;
         vm.prank(management);
         bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance / 2);
-        requestIds = abi.decode(returnData, (uint256[]));
 
         // Try to harvest - should revert with pending redemptions
         vm.prank(keeper);
@@ -113,8 +129,8 @@ contract WithdrawalQueueTest is Setup {
 
         // Complete the withdrawal (mock queue handles ETH transfer)
 
-        vm.prank(management);
-        strategy.claimLSTWithdrawal(abi.encode(requestIds[0]));
+        vm.prank(keeper);
+        strategy.claimLSTWithdrawal(returnData);
 
         // Now harvest should work
         vm.prank(keeper);
@@ -130,40 +146,44 @@ contract WithdrawalQueueTest is Setup {
         skip(1 days);
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
 
-        // Initiate first withdrawal
+        // Initiate two withdrawals before claiming either one.
         uint256 firstWithdrawal = stethBalance / 3;
+        uint256 secondWithdrawal = stethBalance / 3;
+
         vm.prank(management);
         bytes memory returnData1 = strategy.initiateLSTWithdrawal(firstWithdrawal);
-        uint256[] memory requestIds1 = abi.decode(returnData1, (uint256[]));
+        uint256 requestId1 = abi.decode(returnData1, (uint256));
+        assertGt(requestId1, 0, "Invalid first request ID");
+
+        vm.prank(management);
+        bytes memory returnData2 = strategy.initiateLSTWithdrawal(secondWithdrawal);
+        uint256 requestId2 = abi.decode(returnData2, (uint256));
+        assertGt(requestId2, requestId1, "Invalid second request ID");
+
+        assertEq(
+            strategy.pendingRedemptions(), firstWithdrawal + secondWithdrawal, "Pending redemptions not accumulated"
+        );
 
         // Cannot harvest with pending
         vm.prank(keeper);
         vm.expectRevert("Pending redemptions");
         strategy.report();
 
-        // Complete first withdrawal (mock queue handles ETH)
-
-        vm.prank(management);
-        strategy.claimLSTWithdrawal(abi.encode(requestIds1[0]));
-
-        // Can harvest now
+        // Claiming one request should leave the other pending.
         vm.prank(keeper);
+        strategy.claimLSTWithdrawal(returnData1);
+        assertEq(strategy.pendingRedemptions(), secondWithdrawal, "Wrong pending amount after first claim");
+
+        vm.prank(keeper);
+        vm.expectRevert("Pending redemptions");
         strategy.report();
 
-        // Verify multiple withdrawals can be initiated
-        uint256 remainingSteth = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
-        if (remainingSteth > 0) {
-            uint256[] memory requestIds2 = new uint256[](1);
-            requestIds2[0] = 12346; // Different mock ID
-            vm.mockCall(
-                WITHDRAWAL_QUEUE, abi.encodeWithSelector(IQueue.requestWithdrawals.selector), abi.encode(requestIds2)
-            );
+        vm.prank(keeper);
+        strategy.claimLSTWithdrawal(returnData2);
+        assertEq(strategy.pendingRedemptions(), 0, "Pending redemptions not cleared");
 
-            vm.prank(management);
-            bytes memory returnData2 = strategy.initiateLSTWithdrawal(remainingSteth);
-            uint256[] memory decodedIds2 = abi.decode(returnData2, (uint256[]));
-            assertEq(decodedIds2[0], requestIds2[0], "Wrong second request ID");
-        }
+        vm.prank(keeper);
+        strategy.report();
     }
 
     function test_clearPendingRedemptions() public {
@@ -182,6 +202,7 @@ contract WithdrawalQueueTest is Setup {
 
         uint256 pending = strategy.pendingRedemptions();
         assertEq(pending, stethBalance, "Pending not set");
+        uint256 estimatedBeforeClear = strategy.estimatedTotalAssets();
 
         // Cannot harvest with pending
         vm.prank(keeper);
@@ -193,6 +214,9 @@ contract WithdrawalQueueTest is Setup {
         vm.prank(management);
         strategy.clearPendingRedemptions(halfPending);
         assertEq(strategy.pendingRedemptions(), pending - halfPending, "Partial clear failed");
+        assertEq(
+            estimatedBeforeClear - strategy.estimatedTotalAssets(), halfPending, "Partial clear not reflected in value"
+        );
 
         // Still cannot harvest
         vm.prank(keeper);
@@ -203,6 +227,7 @@ contract WithdrawalQueueTest is Setup {
         vm.prank(management);
         strategy.clearPendingRedemptions(pending);
         assertEq(strategy.pendingRedemptions(), 0, "Full clear failed");
+        assertEq(estimatedBeforeClear - strategy.estimatedTotalAssets(), pending, "Full clear not reflected in value");
 
         // Non-management cannot clear
         vm.prank(user);
@@ -223,7 +248,8 @@ contract WithdrawalQueueTest is Setup {
         // Initiate withdrawal through normal path
         vm.prank(management);
         bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
-        uint256[] memory requestIds = abi.decode(returnData, (uint256[]));
+        uint256[] memory requestIds = new uint256[](1);
+        requestIds[0] = abi.decode(returnData, (uint256));
 
         uint256 wethBefore = asset.balanceOf(address(strategy));
 
@@ -259,17 +285,13 @@ contract WithdrawalQueueTest is Setup {
 
         // Initiate withdrawal
         vm.prank(management);
-        strategy.initiateLSTWithdrawal(stethBalance);
+        bytes memory returnData = strategy.initiateLSTWithdrawal(stethBalance);
 
         uint256 pendingBefore = strategy.pendingRedemptions();
         assertGt(pendingBefore, 0, "No pending redemptions");
 
-        // Decode request IDs
-        // Re-initiate to get fresh IDs (previous ones were already used)
-        // Actually, we need the original request IDs. Let's just re-read the return data.
-        // The mock queue assigned ID=1, so we use that.
         uint256[] memory requestIds = new uint256[](1);
-        requestIds[0] = 1;
+        requestIds[0] = abi.decode(returnData, (uint256));
         uint256[] memory hints = new uint256[](1);
         hints[0] = 0;
 

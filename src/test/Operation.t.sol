@@ -53,7 +53,7 @@ contract OperationTest is Setup {
 
         // First swap stETH back to WETH to enable withdrawals
         vm.prank(management);
-        strategy.manualSwapToAsset(stethBalance, 0);
+        strategy.manualSwapToAsset(stethBalance, 1);
 
         uint256 balanceBefore = asset.balanceOf(user);
 
@@ -108,7 +108,7 @@ contract OperationTest is Setup {
         // Swap stETH back to WETH for withdrawals
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         vm.prank(management);
-        strategy.manualSwapToAsset(stethBalance, 0);
+        strategy.manualSwapToAsset(stethBalance, 1);
 
         uint256 balanceBefore = asset.balanceOf(user);
 
@@ -163,7 +163,7 @@ contract OperationTest is Setup {
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         if (stethBalance > 0) {
             vm.prank(management);
-            strategy.manualSwapToAsset(stethBalance, 0);
+            strategy.manualSwapToAsset(stethBalance, 1);
         }
 
         uint256 maxRedeem = strategy.maxRedeem(user);
@@ -253,7 +253,7 @@ contract OperationTest is Setup {
         uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy));
         uint256 swapAmount = stethBalance / 2;
         vm.prank(management);
-        strategy.manualSwapToAsset(swapAmount, 0);
+        strategy.manualSwapToAsset(swapAmount, 1);
 
         // Now available withdraw should equal WETH balance
         uint256 wethBalance = asset.balanceOf(address(strategy));
