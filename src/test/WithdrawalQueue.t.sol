@@ -257,7 +257,7 @@ contract WithdrawalQueueTest is Setup {
         uint256[] memory hints = new uint256[](1);
         hints[0] = 0; // Mock doesn't use hints
 
-        vm.prank(emergencyAdmin);
+        vm.prank(management);
         strategy.manualClaimWithdrawals(requestIds, hints, true);
 
         // Check WETH was received
@@ -269,7 +269,7 @@ contract WithdrawalQueueTest is Setup {
 
         // Non-emergency-authorized cannot call
         vm.prank(user);
-        vm.expectRevert("!emergency authorized");
+        vm.expectRevert("!management");
         strategy.manualClaimWithdrawals(requestIds, hints, false);
     }
 
@@ -296,7 +296,7 @@ contract WithdrawalQueueTest is Setup {
         hints[0] = 0;
 
         // Claim with zeroRedemptions=false
-        vm.prank(emergencyAdmin);
+        vm.prank(management);
         strategy.manualClaimWithdrawals(requestIds, hints, false);
 
         // Pending redemptions should NOT be zeroed
