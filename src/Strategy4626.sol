@@ -3,9 +3,9 @@ pragma solidity ^0.8.23;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Strategy} from "./Strategy.sol";
+import {IStrategyInterface} from "./interfaces/IStrategyInterface.sol";
 import {IWstETH} from "./interfaces/IWstETH.sol";
 
 /// @title stETH Accumulator With ERC-4626 Vault
@@ -13,14 +13,19 @@ import {IWstETH} from "./interfaces/IWstETH.sol";
 contract Strategy4626 is Strategy {
     using SafeERC20 for *;
 
+    event MaxLossUpdated(uint256 indexed maxLoss);
+
     IWstETH public constant wstETH = IWstETH(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
 
-    IERC4626 public immutable vault;
+    IStrategyInterface public immutable vault;
+
+    /// @notice Maximum loss accepted when redeeming vault shares, in basis points.
+    uint256 public maxLoss;
 
     constructor(address _asset, string memory _name, address _vault) Strategy(_asset, _name) {
-        require(IERC4626(_vault).asset() == address(wstETH), "wrong vault");
+        require(IStrategyInterface(_vault).asset() == address(wstETH), "wrong vault");
 
-        vault = IERC4626(_vault);
+        vault = IStrategyInterface(_vault);
 
         ERC20(LST).forceApprove(address(wstETH), type(uint256).max);
         wstETH.forceApprove(_vault, type(uint256).max);
@@ -90,7 +95,7 @@ contract Strategy4626 is Strategy {
                 Math.min(vault.previewWithdraw(neededWstETH - wrappedBalance), vault.maxRedeem(address(this)));
 
             if (shares > 0) {
-                wrappedBalance += vault.redeem(shares, address(this), address(this));
+                wrappedBalance += vault.redeem(shares, address(this), address(this), maxLoss);
             }
         }
 
@@ -104,11 +109,20 @@ contract Strategy4626 is Strategy {
         return wstETH.getStETHByWstETH(_amount);
     }
 
+    /// @notice Set the maximum loss accepted when redeeming vault shares.
+    /// @param _maxLoss Maximum loss in basis points.
+    function setMaxLoss(uint256 _maxLoss) external virtual onlyManagement {
+        require(_maxLoss <= MAX_BPS, "Invalid max loss");
+
+        maxLoss = _maxLoss;
+        emit MaxLossUpdated(_maxLoss);
+    }
+
     function manualRedeem(uint256 _amount) external onlyEmergencyAuthorized {
         _amount = Math.min(_amount, vault.balanceOf(address(this)));
         if (_amount == 0) return;
 
-        vault.redeem(_amount, address(this), address(this));
+        vault.redeem(_amount, address(this), address(this), maxLoss);
     }
 
     function manualUnwrap(uint256 _amount) external onlyEmergencyAuthorized {

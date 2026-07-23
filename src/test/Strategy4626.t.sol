@@ -5,6 +5,8 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Setup4626} from "./utils/Setup4626.sol";
 
 contract Strategy4626Test is Setup4626 {
+    event MaxLossUpdated(uint256 indexed maxLoss);
+
     function setUp() public virtual override {
         super.setUp();
     }
@@ -13,6 +15,31 @@ contract Strategy4626Test is Setup4626 {
         assertEq(address(strategy4626.vault()), address(vault4626));
         assertEq(address(strategy4626.wstETH()), tokenAddrs["WSTETH"]);
         assertEq(strategy4626.vault().asset(), tokenAddrs["WSTETH"]);
+        assertEq(strategy4626.maxLoss(), 0);
+    }
+
+    function test_setMaxLoss() public {
+        uint256 newMaxLoss = 123;
+
+        vm.expectEmit(true, true, true, true, address(strategy4626));
+        emit MaxLossUpdated(newMaxLoss);
+
+        vm.prank(management);
+        strategy4626.setMaxLoss(newMaxLoss);
+
+        assertEq(strategy4626.maxLoss(), newMaxLoss);
+    }
+
+    function test_setMaxLoss_revertsAboveMaxBps() public {
+        vm.prank(management);
+        vm.expectRevert("Invalid max loss");
+        strategy4626.setMaxLoss(MAX_BPS + 1);
+    }
+
+    function test_setMaxLoss_accessControl() public {
+        vm.prank(user);
+        vm.expectRevert("!management");
+        strategy4626.setMaxLoss(1);
     }
 
     function test_depositWrapsAndDeposits(uint256 _amount) public {
@@ -44,6 +71,28 @@ contract Strategy4626Test is Setup4626 {
         mintAndDepositIntoStrategy(strategy, user, _amount);
 
         uint256 sharesBefore = vault4626.balanceOf(address(strategy4626));
+        uint256 newMaxLoss = 123;
+
+        vm.prank(management);
+        strategy4626.setMaxLoss(newMaxLoss);
+
+        uint256 stethBalance = ERC20(tokenAddrs["STETH"]).balanceOf(address(strategy4626));
+        uint256 neededWstETH = strategy4626.wstETH().getWstETHByStETH(_amount - stethBalance) + 2;
+        uint256 wrappedBalance = strategy4626.balanceOfWstETH();
+        uint256 shares = vault4626.previewWithdraw(neededWstETH - wrappedBalance);
+        uint256 maxRedeem = vault4626.maxRedeem(address(strategy4626));
+        if (shares > maxRedeem) shares = maxRedeem;
+
+        vm.expectCall(
+            address(vault4626),
+            abi.encodeWithSignature(
+                "redeem(uint256,address,address,uint256)",
+                shares,
+                address(strategy4626),
+                address(strategy4626),
+                newMaxLoss
+            )
+        );
 
         vm.prank(management);
         strategy4626.manualSwapToAsset(_amount, 1);
@@ -59,6 +108,21 @@ contract Strategy4626Test is Setup4626 {
 
         uint256 sharesBefore = vault4626.balanceOf(address(strategy4626));
         assertGt(sharesBefore, 0, "No vault shares");
+
+        uint256 newMaxLoss = 123;
+        vm.prank(management);
+        strategy4626.setMaxLoss(newMaxLoss);
+
+        vm.expectCall(
+            address(vault4626),
+            abi.encodeWithSignature(
+                "redeem(uint256,address,address,uint256)",
+                sharesBefore,
+                address(strategy4626),
+                address(strategy4626),
+                newMaxLoss
+            )
+        );
 
         vm.prank(emergencyAdmin);
         strategy4626.manualRedeem(type(uint256).max);
